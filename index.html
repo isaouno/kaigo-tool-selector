@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>介護用品えらびサポート</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">W</div>
+          <div>
+            <h1>介護用品えらびサポート</h1>
+            <p>ACCORD CLUB Acolclub レンタル商品カタログ vol.26</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-button" id="resetButton" type="button">新規相談</button>
+          <a class="catalog-link" href="acolclub.pdf#page=3" target="_blank" rel="noreferrer">カタログ</a>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="chat-pane" aria-label="相談チャット">
+          <div class="messages" id="messages"></div>
+
+          <div class="quick-chips" id="quickChips" aria-label="相談場面">
+            <button type="button" data-seed="入浴で困っています">入浴</button>
+            <button type="button" data-seed="排泄で困っています">排泄</button>
+            <button type="button" data-seed="移動や歩行で困っています">移動</button>
+            <button type="button" data-seed="ベッド周りで困っています">ベッド周り</button>
+            <button type="button" data-seed="食事で困っています">食事</button>
+            <button type="button" data-seed="住宅改修や家の中の動線で困っています">住宅改修</button>
+            <button type="button" data-seed="毎日の生活動作で困っています">生活支援</button>
+          </div>
+
+          <form class="composer" id="chatForm">
+            <textarea
+              id="chatInput"
+              rows="2"
+              placeholder="例：母の入浴で、浴槽をまたぐ時にふらつきます。介助は家族1人です。"
+              aria-label="相談内容"
+            ></textarea>
+            <button type="submit">送信</button>
+          </form>
+        </section>
+
+        <div class="app-state-store" hidden aria-hidden="true">
+          <span id="progressCount">0/5</span>
+          <div id="factGrid"></div>
+          <span id="catalogSource">P1</span>
+          <div id="pageList"></div>
+          <span id="previewPage">P1</span>
+          <strong id="previewTitle">Acolclub目次</strong>
+          <a id="previewLink" href="acolclub.pdf#page=3" target="_blank" rel="noreferrer">PDFで開く</a>
+          <div id="previewMedia">
+            <img id="previewImage" src="" alt="" hidden>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="catalog-data.js"></script>
+    <script src="product-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
