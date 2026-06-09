@@ -191,6 +191,10 @@ const handsOnCaregiverItemIds = new Set([
   html = lastAssistantHtml(elements);
   assert.match(html, /候補商品の比較/);
   assert.ok(app.state.recommendations.length > 0);
+  assert.match(html, /まずはご相談ください/);
+  assert.match(html, /桜十字福祉用具　担当堀江（090-9576-3944）までお気軽にご相談ください。/);
+  assert.doesNotMatch(html, /次にやること/);
+  assert.doesNotMatch(html, /参照:/);
 }
 
 {
@@ -227,7 +231,8 @@ const handsOnCaregiverItemIds = new Set([
   app.handleUserMessage("本人は立つ座る歩くは少しできますがふらつきます。介助者は1人です。安全にしたいです。");
   app.handleUserMessage("浴室が狭いので、シャワーチェアは小さいものがよいです。");
   const html = lastAssistantHtml(elements);
-  assert.match(firstCandidate(elements), /シャワーチェア|Acolclubレンタルカタログ掲載外/);
+  assert.match(firstCandidate(elements), /シャワーチェア/);
+  assert.doesNotMatch(html, /Acolclub掲載外|Acolclubレンタルカタログ掲載外/);
   assert.match(html, /介護保険では購入・住宅改修・自費扱い/);
 }
 

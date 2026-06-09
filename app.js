@@ -847,8 +847,9 @@ function productSearchTerms(product) {
 }
 
 function productTitle(product) {
-  const maker = product.maker ? `${product.maker} ` : "";
-  return `${maker}${product.name || product.type || "候補商品"}`;
+  const maker = cleanDisplayText(product.maker);
+  const name = cleanDisplayText(product.name || product.type || "候補商品");
+  return `${maker ? `${maker} ` : ""}${name}`;
 }
 
 function productSubText(product) {
@@ -859,7 +860,21 @@ function productSubText(product) {
 }
 
 function productPageLabel(product) {
-  return product.name || product.type || product.category || "候補";
+  return cleanDisplayText(product.name || product.type || product.category || "候補");
+}
+
+function cleanDisplayText(value = "") {
+  return String(value)
+    .replace(/Acolclub掲載外/g, "")
+    .replace(/（\s*）/g, "")
+    .replace(/はAcolclubレンタルカタログ掲載外/g, "")
+    .replace(/Acolclubレンタルカタログ掲載外/g, "")
+    .replace(/レンタルカタログ掲載外/g, "")
+    .replace(/このAcolclubカタログには該当商品の掲載がありません。/g, "")
+    .replace(/Acolclub内では該当商品にリンクしません。/g, "")
+    .replace(/Acolclub内では該当商品にリンクせず、/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function resolveCatalogPage(target, pdfPage) {
@@ -1701,7 +1716,6 @@ function renderRecommendation(result) {
   const bubble = document.createElement("article");
   bubble.className = "message assistant rich";
   const compared = products.length ? products : items;
-  const sourcePages = [...new Set(compared.map((entry) => entry.page))];
   const hearingLabels = getHearingLabels();
 
   const summaryRows = [
@@ -1723,7 +1737,7 @@ function renderRecommendation(result) {
             ([label, value]) => `
               <div>
                 <dt>${escapeHtml(label)}</dt>
-                <dd>${escapeHtml(value)}</dd>
+                <dd>${escapeHtml(cleanDisplayText(value))}</dd>
               </div>
             `
           )
@@ -1754,15 +1768,15 @@ function renderRecommendation(result) {
                       ${product.model ? `<small>${escapeHtml(`型番: ${product.model}`)}</small>` : ""}
                       ${
                         product.catalogUnavailable
-                          ? `<small>このAcolclubカタログには該当商品の掲載がありません。</small>`
+                          ? ""
                           : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}">
                               カタログ P${product.page}を開く
                             </a>`
                       }
                     </td>
-                    <td data-label="種類">${escapeHtml(product.category || product.type || "候補")}</td>
-                    <td data-label="向いている理由">${escapeHtml(product.bestFor || product.itemFit || product.fit || "")}</td>
-                    <td data-label="確認すること">${escapeHtml(product.check || product.itemDemerits || product.demerits || "現物の寸法と使う場所を確認。")}</td>
+                    <td data-label="種類">${escapeHtml(cleanDisplayText(product.category || product.type || "候補"))}</td>
+                    <td data-label="向いている理由">${escapeHtml(cleanDisplayText(product.bestFor || product.itemFit || product.fit || ""))}</td>
+                    <td data-label="確認すること">${escapeHtml(cleanDisplayText(product.check || product.itemDemerits || product.demerits || "現物の寸法と使う場所を確認。"))}</td>
                     <td data-label="価格">${renderProductCost(product)}</td>
                   </tr>
                 `
@@ -1775,7 +1789,7 @@ function renderRecommendation(result) {
 
     <section>
       <h2>3. 今いちばん合いそうな商品と理由</h2>
-      <p><strong>第一候補: ${escapeHtml(productTitle(best))}</strong>。${escapeHtml(best.bestFor || best.itemFit || "")} ${escapeHtml(state.facts.goal)}という希望と合います。</p>
+      <p><strong>第一候補: ${escapeHtml(productTitle(best))}</strong>。${escapeHtml(cleanDisplayText(best.bestFor || best.itemFit || ""))} ${escapeHtml(state.facts.goal)}という希望と合います。</p>
       ${
         complementary
           ? `<p>${escapeHtml(productTitle(complementary))}は、第一候補で足りない部分が残る場合の比較候補です。実際の動作確認で、支えの位置、置く場所、介助量を見て判断してください。</p>`
@@ -1784,13 +1798,10 @@ function renderRecommendation(result) {
     </section>
 
     <section>
-      <h2>4. 次にやること</h2>
-      <ol class="action-list">
-        ${scene.actions.map((action) => `<li>${escapeHtml(action)}</li>`).join("")}
-      </ol>
-      <p class="source-note">参照: ${escapeHtml(CatalogData.meta.title)}（${sourcePages
-        .map((page) => `P${page}`)
-        .join(" / ")}）</p>
+      <h2>4. まずはご相談ください</h2>
+      <div class="consultation-box">
+        <p>桜十字福祉用具　担当堀江（090-9576-3944）までお気軽にご相談ください。</p>
+      </div>
     </section>
   `;
 

@@ -362,10 +362,17 @@ td > .product-price:first-child {
   padding-left: 20px;
 }
 
-.source-note {
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 12px;
+.consultation-box {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid #b8d4d0;
+  border-radius: 8px;
+  background: #f3faf8;
+}
+
+.consultation-box p {
+  margin: 0;
+  font-weight: 700;
 }
 
 .quick-chips {

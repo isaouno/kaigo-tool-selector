@@ -1,0 +1,9 @@
+# Old source catalog. GitHub rejects files larger than 100 MiB.
+kaienntai.pdf
+
+# Accidental empty/generated file.
+P3
+
+# Local OS/editor files.
+.DS_Store
+Thumbs.db
