@@ -191,7 +191,13 @@ const handsOnCaregiverItemIds = new Set([
   html = lastAssistantHtml(elements);
   assert.match(html, /候補商品の比較/);
   assert.ok(app.state.recommendations.length > 0);
+  assert.match(html, /今回の条件/);
+  assert.doesNotMatch(html, /状況の整理/);
+  assert.doesNotMatch(html, /アセスメント/);
+  assert.match(html, /1\. 候補商品の比較/);
+  assert.match(html, /2\. いちばん合いそうな商品/);
   assert.match(html, /まずはご相談ください/);
+  assert.match(html, /3\. まずはご相談ください/);
   assert.match(html, /tel:09095763944/);
   assert.match(html, /090-9576-3944/);
   assert.doesNotMatch(html, /次にやること/);

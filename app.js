@@ -1716,37 +1716,25 @@ function renderRecommendation(result) {
   const bubble = document.createElement("article");
   bubble.className = "message assistant rich";
   const compared = products.length ? products : items;
-  const hearingLabels = getHearingLabels();
-
-  const summaryRows = [
-    [hearingLabels.scene, `${getConversationSceneLabel(scene)}${state.facts.desired ? `（候補: ${state.facts.desired}）` : ""}`],
-    [hearingLabels.ability, state.facts.ability],
-    [hearingLabels.caregiver, state.facts.caregiver],
-    [hearingLabels.goal, state.facts.goal],
-    [hearingLabels.environment, state.facts.environment],
-    ["追加条件", state.profile.constraints.length ? state.profile.constraints.join("、") : "まだ確認が必要"]
-  ];
+  const conditionParts = [
+    getConversationSceneLabel(scene),
+    state.facts.desired ? `希望: ${state.facts.desired}` : "",
+    state.facts.ability,
+    state.facts.caregiver,
+    state.facts.goal,
+    state.facts.environment
+  ]
+    .map(cleanDisplayText)
+    .filter(Boolean);
 
   bubble.innerHTML = `
-    <section>
-      <h2>1. 状況の整理</h2>
-      <p>${escapeHtml(scene.lens)}</p>
-      <dl class="assessment-list">
-        ${summaryRows
-          .map(
-            ([label, value]) => `
-              <div>
-                <dt>${escapeHtml(label)}</dt>
-                <dd>${escapeHtml(cleanDisplayText(value))}</dd>
-              </div>
-            `
-          )
-          .join("")}
-      </dl>
+    <section class="condition-section">
+      <h2>今回の条件</h2>
+      <p class="condition-summary">${escapeHtml(conditionParts.join(" / "))}</p>
     </section>
 
     <section>
-      <h2>2. 候補商品の比較</h2>
+      <h2>1. 候補商品の比較</h2>
       <div class="table-wrap">
         <table>
           <thead>
@@ -1788,7 +1776,7 @@ function renderRecommendation(result) {
     </section>
 
     <section>
-      <h2>3. 今いちばん合いそうな商品と理由</h2>
+      <h2>2. いちばん合いそうな商品</h2>
       <p><strong>第一候補: ${escapeHtml(productTitle(best))}</strong>。${escapeHtml(cleanDisplayText(best.bestFor || best.itemFit || ""))} ${escapeHtml(state.facts.goal)}という希望と合います。</p>
       ${
         complementary
@@ -1798,7 +1786,7 @@ function renderRecommendation(result) {
     </section>
 
     <section>
-      <h2>4. まずはご相談ください</h2>
+      <h2>3. まずはご相談ください</h2>
       <div class="consultation-box">
         <p>桜十字福祉用具　担当堀江（<a href="tel:09095763944">090-9576-3944</a>）までお気軽にご相談ください。</p>
       </div>
