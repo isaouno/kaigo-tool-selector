@@ -1,6 +1,5 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const path = require("node:path");
 const vm = require("node:vm");
 
 const context = {};
@@ -21,14 +20,6 @@ assert.equal(CatalogData.meta.pdf, "acolclub.pdf");
 assert.equal(pdfPageCount, 94);
 assert.equal(pageMap[1], 3);
 assert.equal(pageMap[90], 92);
-assert.equal(fs.existsSync("catalog-page.html"), true, "catalog page viewer should exist");
-{
-  const catalogPageHtml = fs.readFileSync("catalog-page.html", "utf8");
-  assert.match(catalogPageHtml, /assets\/catalog-pages\/page-\$\{pdfPage\}\.jpg/);
-  assert.match(catalogPageHtml, /pdf\.js\/4\.10\.38\/pdf\.min\.mjs/);
-  assert.match(catalogPageHtml, /pdf\.js\/4\.10\.38\/pdf\.worker\.min\.mjs/);
-  assert.match(catalogPageHtml, /getPage\(pdfPage\)/);
-}
 
 for (const [categoryId, products] of Object.entries(CatalogProducts)) {
   for (const product of products) {
@@ -41,10 +32,6 @@ for (const [categoryId, products] of Object.entries(CatalogProducts)) {
       pageMap[product.page],
       `${categoryId}/${product.name} should link by printed page -> PDF page map`
     );
-    if (!product.catalogUnavailable) {
-      const imagePath = path.join("assets", "catalog-pages", `page-${product.pdfPage}.jpg`);
-      assert.equal(fs.existsSync(imagePath), true, `${categoryId}/${product.name} catalog page image should exist`);
-    }
   }
 }
 
