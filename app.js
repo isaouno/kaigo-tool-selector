@@ -895,6 +895,14 @@ function resolveCatalogPage(target, pdfPage) {
 
 function catalogPageHref(target, pdfPage) {
   const pageInfo = resolveCatalogPage(target, pdfPage);
+  if (!pageInfo.pdfPage) return CatalogData.meta.pdf;
+  const params = [`page=${encodeURIComponent(pageInfo.pdfPage)}`];
+  if (pageInfo.page) params.push(`print=${encodeURIComponent(pageInfo.page)}`);
+  return `catalog-page.html?${params.join("&")}`;
+}
+
+function catalogPdfPageHref(target, pdfPage) {
+  const pageInfo = resolveCatalogPage(target, pdfPage);
   return pageInfo.pdfPage ? `${CatalogData.meta.pdf}#page=${pageInfo.pdfPage}` : CatalogData.meta.pdf;
 }
 
@@ -1769,7 +1777,7 @@ function renderRecommendation(result) {
                       ${
                         product.catalogUnavailable
                           ? ""
-                          : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}">
+                          : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}" data-pdf-href="${catalogPdfPageHref(product)}">
                               カタログ P${product.page}を開く
                             </a>`
                       }
@@ -1864,7 +1872,7 @@ function setCatalogPage(target, pdfPage) {
   previewImageEl.alt = `P${pageInfo.page} ${label}`;
   previewMediaEl.dataset.empty = "false";
   previewImageEl.hidden = false;
-  previewImageEl.src = `assets/page-${pageInfo.pdfPage || pageInfo.page}.jpg`;
+  previewImageEl.src = `assets/catalog-pages/page-${pageInfo.pdfPage || pageInfo.page}.jpg`;
 }
 
 formEl.addEventListener("submit", (event) => {
