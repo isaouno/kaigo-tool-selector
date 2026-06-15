@@ -52,6 +52,19 @@
         background: #ffffff;
       }
 
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid #d9e6e2;
+        background: #ffffff;
+      }
+
+      .status {
+        margin: 0 0 12px;
+        color: #5d6e69;
+      }
+
       .fallback {
         padding: 16px;
         border: 1px solid #d9e6e2;
@@ -65,7 +78,9 @@
       <a id="pdfLink" href="acolclub.pdf" target="_blank" rel="noreferrer">PDFで開く</a>
     </header>
     <main>
+      <p class="status" id="status" hidden>カタログページを読み込んでいます。</p>
       <img id="catalogImage" alt="">
+      <canvas id="catalogCanvas" hidden></canvas>
       <p class="fallback" id="fallback" hidden>
         ページ画像を表示できませんでした。上の「PDFで開く」からカタログを確認してください。
       </p>
@@ -81,6 +96,8 @@
       const pageTitle = document.getElementById("pageTitle");
       const pdfLink = document.getElementById("pdfLink");
       const image = document.getElementById("catalogImage");
+      const canvas = document.getElementById("catalogCanvas");
+      const status = document.getElementById("status");
       const fallback = document.getElementById("fallback");
 
       pageTitle.textContent = title;
@@ -95,10 +112,38 @@
         fallback.hidden = false;
       }
 
-      image.addEventListener("error", () => {
+      image.addEventListener("error", async () => {
         image.hidden = true;
-        fallback.hidden = false;
+        await renderPdfPageFromPdf();
       });
+
+      async function renderPdfPageFromPdf() {
+        status.hidden = false;
+        status.textContent = "ページ画像が見つからないため、PDFから該当ページを表示しています。";
+        fallback.hidden = true;
+
+        try {
+          const pdfjsLib = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs");
+          pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs";
+          const documentTask = pdfjsLib.getDocument("acolclub.pdf");
+          const pdf = await documentTask.promise;
+          const page = await pdf.getPage(pdfPage);
+          const scale = Math.min(window.devicePixelRatio || 1, 2) * 1.35;
+          const viewport = page.getViewport({ scale });
+          const context = canvas.getContext("2d");
+
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          canvas.hidden = false;
+          await page.render({ canvasContext: context, viewport }).promise;
+          status.hidden = true;
+        } catch (error) {
+          canvas.hidden = true;
+          status.hidden = true;
+          fallback.hidden = false;
+        }
+      }
     </script>
   </body>
 </html>

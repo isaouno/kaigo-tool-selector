@@ -151,8 +151,8 @@ const handsOnCaregiverItemIds = new Set([
   assert.equal(app.CatalogData.meta.pdfPageCount, 94);
   assert.equal(app.CatalogData.meta.pageMap[1], 3);
   assert.equal(app.CatalogData.meta.pageMap[50], 52);
-  assert.equal(app.catalogPageHref({ page: 50, pdfPage: 52 }), "catalog-page.html?page=52&print=50");
-  assert.equal(app.catalogPageHref({ page: 50 }), "catalog-page.html?page=52&print=50");
+  assert.equal(app.catalogPageHref({ page: 50, pdfPage: 52 }), "catalog-page.html?page=52&print=50&v=20260615-3");
+  assert.equal(app.catalogPageHref({ page: 50 }), "catalog-page.html?page=52&print=50&v=20260615-3");
   assert.equal(app.catalogPdfPageHref({ page: 50, pdfPage: 52 }), "acolclub.pdf#page=52");
 
   for (const products of Object.values(app.CatalogProducts)) {
@@ -208,8 +208,8 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /トイレ用手すり/);
   assert.match(html, /置き型手すり|浴室外手すり|たちあっぷ|スムーディ/);
   assert.match(html, /シャワーチェア/);
-  assert.match(html, /href="catalog-page\.html\?page=52&print=50"[^>]*>\s*カタログ\s+P50を開く/);
-  assert.match(html, /href="catalog-page\.html\?page=53&print=51"[^>]*>\s*カタログ\s+P51を開く/);
+  assert.match(html, /href="catalog-page\.html\?page=52&print=50&v=20260615-3"[^>]*>\s*カタログ\s+P50を開く/);
+  assert.match(html, /href="catalog-page\.html\?page=53&print=51&v=20260615-3"[^>]*>\s*カタログ\s+P51を開く/);
   assert.match(html, /data-pdf-href="acolclub\.pdf#page=52"/);
   assert.match(html, /data-pdf-href="acolclub\.pdf#page=53"/);
   assert.doesNotMatch(html, /href="acolclub\.pdf#page=50"[^>]*>\s*カタログ\s+P50を開く/);

@@ -29,6 +29,7 @@ const previewMediaEl = document.getElementById("previewMedia");
 const previewPageEl = document.getElementById("previewPage");
 const previewTitleEl = document.getElementById("previewTitle");
 const previewLinkEl = document.getElementById("previewLink");
+const CATALOG_PAGE_VIEWER_VERSION = "20260615-3";
 
 const INITIAL_MESSAGE =
   "介護用品えらびサポートです。たくさんある商品の中から、今の生活に合いそうなものを一緒に絞り込みます。\nまず、いちばん困っている場面を下のボタンから選んでください。詳しく書きたい場合は入力欄も使えます。";
@@ -898,6 +899,7 @@ function catalogPageHref(target, pdfPage) {
   if (!pageInfo.pdfPage) return CatalogData.meta.pdf;
   const params = [`page=${encodeURIComponent(pageInfo.pdfPage)}`];
   if (pageInfo.page) params.push(`print=${encodeURIComponent(pageInfo.page)}`);
+  params.push(`v=${CATALOG_PAGE_VIEWER_VERSION}`);
   return `catalog-page.html?${params.join("&")}`;
 }
 
