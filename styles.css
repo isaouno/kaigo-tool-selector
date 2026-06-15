@@ -375,6 +375,17 @@ td > .product-price:first-child {
   font-weight: 700;
 }
 
+.consultation-box a {
+  color: #0f6a5f;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.consultation-box a:hover,
+.consultation-box a:focus-visible {
+  color: #0b4f47;
+}
+
 .quick-chips {
   display: flex;
   flex-wrap: wrap;

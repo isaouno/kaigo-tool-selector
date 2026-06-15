@@ -192,7 +192,8 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /候補商品の比較/);
   assert.ok(app.state.recommendations.length > 0);
   assert.match(html, /まずはご相談ください/);
-  assert.match(html, /桜十字福祉用具　担当堀江（090-9576-3944）までお気軽にご相談ください。/);
+  assert.match(html, /tel:09095763944/);
+  assert.match(html, /090-9576-3944/);
   assert.doesNotMatch(html, /次にやること/);
   assert.doesNotMatch(html, /参照:/);
 }

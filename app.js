@@ -1800,7 +1800,7 @@ function renderRecommendation(result) {
     <section>
       <h2>4. まずはご相談ください</h2>
       <div class="consultation-box">
-        <p>桜十字福祉用具　担当堀江（090-9576-3944）までお気軽にご相談ください。</p>
+        <p>桜十字福祉用具　担当堀江（<a href="tel:09095763944">090-9576-3944</a>）までお気軽にご相談ください。</p>
       </div>
     </section>
   `;
