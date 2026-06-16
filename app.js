@@ -31,7 +31,7 @@ const previewTitleEl = document.getElementById("previewTitle");
 const previewLinkEl = document.getElementById("previewLink");
 
 const INITIAL_MESSAGE =
-  "介護用品えらびサポートです。たくさんある商品の中から、今の生活に合いそうなものを一緒に絞り込みます。\nまず、いちばん困っている場面を下のボタンから選んでください。詳しく書きたい場合は入力欄も使えます。";
+  "福祉用具えらびサポートです。たくさんある商品の中から、今の生活に合いそうなものを一緒に絞り込みます。\nまず、いちばん困っている場面を下のボタンから選んでください。詳しく書きたい場合は入力欄も使えます。";
 
 const RentalEstimateData = {
   "mob-wheelchair": {
