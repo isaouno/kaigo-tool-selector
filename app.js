@@ -15,6 +15,8 @@ const state = {
   lastSignals: null
 };
 
+let undoStack = [];
+
 const messagesEl = document.getElementById("messages");
 const formEl = document.getElementById("chatForm");
 const inputEl = document.getElementById("chatInput");
@@ -31,7 +33,7 @@ const previewTitleEl = document.getElementById("previewTitle");
 const previewLinkEl = document.getElementById("previewLink");
 
 const INITIAL_MESSAGE =
-  "介護用品えらびサポートです。たくさんある商品の中から、今の生活に合いそうなものを一緒に絞り込みます。\nまず、いちばん困っている場面を下のボタンから選んでください。詳しく書きたい場合は入力欄も使えます。";
+  "福祉用具えらびサポートです。たくさんある商品の中から、今の生活に合いそうなものを一緒に絞り込みます。\nまず、いちばん困っている場面を下のボタンから選んでください。詳しく書きたい場合は入力欄も使えます。";
 
 const RentalEstimateData = {
   "mob-wheelchair": {
@@ -147,11 +149,11 @@ const FocusedCompatibleItemIds = {
   "bath-tub-rail": ["bath-tub-rail", "bath-tub-step", "bath-shower-chair"],
   "bath-transfer-board": ["bath-transfer-board", "bath-tub-rail", "bath-tub-step"],
   "bath-shower-carry": ["bath-shower-carry", "bath-shower-chair", "bath-tub-rail", "bath-tub-step"],
-  "toilet-portable": ["toilet-portable", "toilet-rail"],
-  "toilet-rail": ["toilet-rail", "toilet-seat"],
-  "toilet-seat": ["toilet-seat", "toilet-rail"],
-  "toilet-pad": ["toilet-pad", "toilet-clean"],
-  "toilet-clean": ["toilet-clean", "toilet-pad"],
+  "toilet-portable": ["toilet-portable", "toilet-rail", "toilet-seat"],
+  "toilet-rail": ["toilet-rail", "toilet-seat", "toilet-portable", "toilet-pad", "toilet-clean"],
+  "toilet-seat": ["toilet-seat", "toilet-rail", "toilet-portable", "toilet-pad", "toilet-clean"],
+  "toilet-pad": ["toilet-pad", "toilet-clean", "toilet-rail", "toilet-seat"],
+  "toilet-clean": ["toilet-clean", "toilet-pad", "toilet-rail", "toilet-seat"],
   "bed-care-bed": ["bed-care-bed", "bed-rail"],
   "bed-rail": ["bed-rail", "bed-care-bed"],
   "bed-pressure": ["bed-pressure", "bed-transfer-glove"],
@@ -159,7 +161,7 @@ const FocusedCompatibleItemIds = {
   "bed-lift": ["bed-lift", "bed-rail", "bed-care-bed"],
   "mob-wheelchair": ["mob-wheelchair", "mob-wheelchair-cushion", "mob-slope"],
   "mob-wheelchair-cushion": ["mob-wheelchair-cushion", "mob-wheelchair"],
-  "mob-slope": ["mob-slope", "house-slope", "mob-wheelchair", "mob-walker"],
+  "mob-slope": ["mob-slope", "house-slope", "house-rail", "daily-stand", "mob-wheelchair", "mob-walker"],
   "mob-walker": ["mob-walker", "mob-slope"],
   "mob-cane": ["mob-cane"],
   "meal-soft-food": ["meal-soft-food", "meal-thickener"],
@@ -167,9 +169,9 @@ const FocusedCompatibleItemIds = {
   "meal-spoon": ["meal-spoon", "meal-dish"],
   "meal-dish": ["meal-dish", "meal-spoon", "meal-apron"],
   "meal-apron": ["meal-apron", "meal-dish"],
-  "house-rail": ["house-rail", "daily-stand"],
-  "house-slope": ["house-slope", "mob-slope"],
-  "house-step": ["house-step", "house-slope", "mob-slope"],
+  "house-rail": ["house-rail", "daily-stand", "house-slope", "mob-slope"],
+  "house-slope": ["house-slope", "mob-slope", "house-rail", "daily-stand"],
+  "house-step": ["house-step", "house-slope", "mob-slope", "house-rail"],
   "house-grip": ["house-grip", "house-rail"],
   "daily-stand": ["daily-stand", "house-rail", "bed-rail"],
   "daily-reacher": ["daily-reacher", "daily-care-tool"],
@@ -187,6 +189,7 @@ function createEmptyProfile() {
     goals: [],
     environments: [],
     constraints: [],
+    selectionFacts: [],
     lastText: ""
   };
 }
@@ -213,8 +216,10 @@ function resetConversation() {
   state.desiredItemIds = [];
   state.profile = createEmptyProfile();
   state.lastSignals = null;
+  undoStack = [];
   messagesEl.innerHTML = "";
   quickChipsEl.hidden = false;
+  resetQuickChips();
   setCatalogPage(CatalogData.meta.defaultPage || 1, CatalogData.meta.defaultPdfPage);
   renderFacts();
   renderPageList([]);
@@ -223,33 +228,110 @@ function resetConversation() {
   inputEl.focus();
 }
 
-function addAssistantText(text, choices = []) {
+function resetQuickChips() {
+  if (!quickChipsEl.querySelectorAll) return;
+  quickChipsEl.querySelectorAll("button[data-seed]").forEach((button) => {
+    button.disabled = false;
+    button.classList.remove("selected");
+    button.setAttribute("aria-pressed", "false");
+  });
+  const submitButton = quickChipsEl.querySelector("[data-quick-submit]");
+  if (submitButton) submitButton.disabled = true;
+}
+
+const SelectionFieldLabels = {
+  scene: "場面",
+  ability: "困りごと",
+  caregiver: "手伝う人",
+  goal: "希望",
+  environment: "場所",
+  desired: "希望商品",
+  other: "入力"
+};
+
+function getSelectionChips() {
+  const selectionFacts = state.profile.selectionFacts || [];
+  if (selectionFacts.length > 0) {
+    return selectionFacts
+      .map((entry) => ({
+        label: SelectionFieldLabels[entry.field] || "入力",
+        value: cleanDisplayText(entry.value)
+      }))
+      .filter((entry) => entry.value);
+  }
+
+  const chips = [];
+  if (state.facts.scene) chips.push({ label: "場面", value: CatalogData.scenes[state.facts.scene]?.label || state.facts.scene });
+  if (state.facts.desired) chips.push({ label: "希望商品", value: state.facts.desired });
+  if (state.facts.ability) chips.push({ label: "困りごと", value: state.facts.ability });
+  if (state.facts.caregiver) chips.push({ label: "手伝う人", value: state.facts.caregiver });
+  if (state.facts.goal) chips.push({ label: "希望", value: state.facts.goal });
+  if (state.facts.environment) chips.push({ label: "場所", value: state.facts.environment });
+  return chips
+    .map((entry) => ({ ...entry, value: cleanDisplayText(entry.value) }))
+    .filter((entry) => entry.value);
+}
+
+function renderSelectionChipsHtml() {
+  const chips = getSelectionChips();
+  if (chips.length === 0) return "";
+  return `
+    <div class="selection-chips" aria-label="今回の選択内容">
+      <strong>今回の選択内容</strong>
+      <div>
+        ${chips
+          .map(
+            (chip) => `
+              <span class="selection-chip">
+                <small>${escapeHtml(chip.label)}</small>
+                ${escapeHtml(chip.value)}
+              </span>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function addAssistantText(text, choices = [], options = {}) {
   const bubble = document.createElement("article");
   bubble.className = "message assistant";
+  const multiSelect = options.multiSelect === true;
   const textHtml = text
     .split("\n")
     .map((line) => `<p>${escapeHtml(line)}</p>`)
     .join("");
   const choicesHtml = choices.length
     ? `
-      <div class="choice-list" role="group" aria-label="回答の選択肢">
-        ${choices
-          .map(
-            (choice) => `
-              <button
-                type="button"
-                data-choice-text="${escapeHtml(choice.value)}"
-                data-choice-item-ids="${escapeHtml((choice.itemIds || []).join(","))}"
-              >
-                ${escapeHtml(choice.label)}
-              </button>
-            `
-          )
-          .join("")}
+      <div class="choice-group" data-choice-group data-choice-mode="${multiSelect ? "multi" : "single"}">
+        ${multiSelect ? `<p class="choice-hint">複数選べます。選んだら「次へ」を押してください。</p>` : ""}
+        <div class="choice-list" role="group" aria-label="回答の選択肢">
+          ${choices
+            .map(
+              (choice) => `
+                <button
+                  type="button"
+                  data-choice-text="${escapeHtml(choice.value)}"
+                  data-choice-label="${escapeHtml(choice.label)}"
+                  data-choice-item-ids="${escapeHtml((choice.itemIds || []).join(","))}"
+                  ${multiSelect ? `aria-pressed="false"` : ""}
+                >
+                  ${escapeHtml(choice.label)}
+                </button>
+              `
+            )
+            .join("")}
+        </div>
+        ${
+          multiSelect
+            ? `<div class="choice-actions"><button type="button" data-choice-submit disabled>次へ</button></div>`
+            : ""
+        }
       </div>
     `
     : "";
-  bubble.innerHTML = `${textHtml}${choicesHtml}`;
+  bubble.innerHTML = `${renderSelectionChipsHtml()}${textHtml}${choicesHtml}`;
   messagesEl.appendChild(bubble);
   scrollMessages();
 }
@@ -260,6 +342,80 @@ function addUserText(text) {
   bubble.textContent = text;
   messagesEl.appendChild(bubble);
   scrollMessages();
+}
+
+function cloneStateValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createUndoSnapshot() {
+  return {
+    facts: cloneStateValue(state.facts),
+    turns: state.turns,
+    recommendations: cloneStateValue(state.recommendations),
+    pendingFields: [...state.pendingFields],
+    desiredItemIds: [...state.desiredItemIds],
+    profile: cloneStateValue(state.profile),
+    lastSignals: cloneStateValue(state.lastSignals),
+    messageCount: messagesEl.children.length,
+    quickChipsHidden: quickChipsEl.hidden
+  };
+}
+
+function removeMessageAt(index) {
+  const child = messagesEl.children[index];
+  if (child?.remove) child.remove();
+  else if (Array.isArray(messagesEl.children)) messagesEl.children.splice(index, 1);
+}
+
+function removeUndoControls() {
+  for (let index = messagesEl.children.length - 1; index >= 0; index -= 1) {
+    const child = messagesEl.children[index];
+    if (String(child?.className || "").includes("undo-message")) {
+      removeMessageAt(index);
+    }
+  }
+}
+
+function restoreUndoSnapshot(snapshot) {
+  state.facts = cloneStateValue(snapshot.facts);
+  state.turns = snapshot.turns;
+  state.recommendations = cloneStateValue(snapshot.recommendations);
+  state.pendingFields = [...snapshot.pendingFields];
+  state.desiredItemIds = [...snapshot.desiredItemIds];
+  state.profile = cloneStateValue(snapshot.profile);
+  state.lastSignals = cloneStateValue(snapshot.lastSignals);
+  quickChipsEl.hidden = snapshot.quickChipsHidden;
+  if (!quickChipsEl.hidden) resetQuickChips();
+}
+
+function truncateMessages(messageCount) {
+  while (messagesEl.children.length > messageCount) {
+    const lastChild = messagesEl.children[messagesEl.children.length - 1];
+    if (lastChild?.remove) lastChild.remove();
+    else messagesEl.children.pop();
+  }
+}
+
+function addUndoControl() {
+  const bubble = document.createElement("article");
+  bubble.className = "message undo-message";
+  bubble.innerHTML = `<button type="button" class="undo-button" data-undo-last>直前の選択を取り消す</button>`;
+  messagesEl.appendChild(bubble);
+  scrollMessages();
+}
+
+function undoLastTurn() {
+  const snapshot = undoStack.pop();
+  if (!snapshot) return false;
+  restoreUndoSnapshot(snapshot);
+  truncateMessages(snapshot.messageCount);
+  removeUndoControls();
+  renderFacts();
+  renderPageList(state.recommendations);
+  if (state.recommendations[0]) setCatalogPage(state.recommendations[0]);
+  if (undoStack.length > 0) addUndoControl();
+  return true;
 }
 
 function scrollMessages() {
@@ -278,6 +434,9 @@ function escapeHtml(value) {
 function handleUserMessage(rawText, options = {}) {
   const text = rawText.trim();
   if (!text) return;
+  if (options.undoable) removeUndoControls();
+  const undoSnapshot = options.undoable ? createUndoSnapshot() : null;
+  if (undoSnapshot) undoStack.push(undoSnapshot);
   addUserText(text);
   quickChipsEl.hidden = true;
   state.turns += 1;
@@ -291,7 +450,8 @@ function handleUserMessage(rawText, options = {}) {
   if (missing.length > 0) {
     const followUp = buildFollowUpQuestion(missing);
     state.pendingFields = followUp.fields;
-    addAssistantText(followUp.text, followUp.choices || []);
+    addAssistantText(followUp.text, followUp.choices || [], { multiSelect: followUp.multiSelect });
+    if (undoSnapshot) addUndoControl();
     return;
   }
 
@@ -299,8 +459,10 @@ function handleUserMessage(rawText, options = {}) {
   if (previousHadRecommendation && !update.hasMeaningfulChange) {
     addAssistantText(
       "追加したい条件があれば選んでください。文章で補足しても大丈夫です。",
-      getAdditionalRequestChoices()
+      getAdditionalRequestChoices(),
+      { multiSelect: true }
     );
+    if (undoSnapshot) addUndoControl();
     return;
   }
   const result = buildRecommendation();
@@ -309,6 +471,7 @@ function handleUserMessage(rawText, options = {}) {
   renderFacts();
   renderPageList(result.products);
   if (result.products[0]) setCatalogPage(result.products[0]);
+  if (undoSnapshot) addUndoControl();
 }
 
 function updateFacts(text, pendingFields = [], options = {}) {
@@ -354,6 +517,7 @@ function updateFacts(text, pendingFields = [], options = {}) {
   if (signals.constraints.length > 0) state.profile.constraints = mergeProfileValues(state.profile.constraints, signals.constraints);
   state.profile.lastText = text;
   state.lastSignals = signals;
+  recordSelectionFact(text, pendingFields, options, nextScene, desiredItemIds);
 
   return {
     hasMeaningfulChange:
@@ -443,6 +607,35 @@ function splitFactParts(value) {
   return value.split("。").map((part) => part.trim()).filter(Boolean);
 }
 
+function recordSelectionFact(text, pendingFields = [], options = {}, nextScene = "", desiredItemIds = []) {
+  const labels = [
+    ...(options.choiceLabels || []),
+    ...(options.choiceLabel ? [options.choiceLabel] : [])
+  ].map((label) => cleanDisplayText(label)).filter(Boolean);
+  const values = labels.length ? labels : [summarizeFreeTextAnswer(text)];
+  const field = getSelectionFactField(pendingFields, nextScene, desiredItemIds);
+  const replaceFields = new Set(["scene", "caregiver", "goal", "environment"]);
+  const existingFacts = replaceFields.has(field)
+    ? (state.profile.selectionFacts || []).filter((entry) => entry.field !== field)
+    : [...(state.profile.selectionFacts || [])];
+  const seen = new Set(existingFacts.map((entry) => `${entry.field}:${entry.value}`));
+
+  for (const value of values) {
+    const key = `${field}:${value}`;
+    if (!value || seen.has(key)) continue;
+    existingFacts.push({ field, value });
+    seen.add(key);
+  }
+  state.profile.selectionFacts = existingFacts.slice(-12);
+}
+
+function getSelectionFactField(pendingFields = [], nextScene = "", desiredItemIds = []) {
+  if (pendingFields.length === 1) return pendingFields[0];
+  if (nextScene) return "scene";
+  if (desiredItemIds.length > 0) return "desired";
+  return "other";
+}
+
 function shouldReplaceFocus(text) {
   const normalized = normalize(text);
   return hasAny(normalized, ["ではなく", "じゃなく", "やめ", "変更", "切り替え", "今度は", "次は", "別の"]);
@@ -457,6 +650,7 @@ function detectScene(text) {
   const normalized = normalize(text);
   if (hasDailyMonitorRequest(normalized)) return "daily";
   if (hasBathWashingSupportRequest(normalized) || hasBathTubEntryRequest(normalized)) return "bath";
+  if (hasStairRequest(normalized) || hasStepOrThresholdRequest(normalized)) return "housing";
   let bestScene = "";
   let bestScore = 0;
   for (const [sceneKey, scene] of Object.entries(CatalogData.scenes)) {
@@ -485,6 +679,46 @@ function hasBathTubEntryRequest(normalized) {
   );
 }
 
+function hasBathMobilityRequest(normalized) {
+  return (
+    hasAny(normalized, ["浴室", "入浴", "風呂", "お風呂", "風呂場"]) &&
+    hasAny(normalized, ["浴室内の移動", "浴室内で移動", "浴室まで歩", "移動が不安", "移動が難しい", "動作が不安", "ふらつ", "歩けない"])
+  );
+}
+
+function hasStairRequest(normalized) {
+  return hasAny(normalized, ["階段", "階段昇降", "昇り降り", "上り下り", "のぼりおり"]);
+}
+
+function hasStepOrThresholdRequest(normalized) {
+  return (
+    hasAny(normalized, ["段差", "上がり框", "上り框", "敷居", "つまず", "つまづ"]) ||
+    (hasAny(normalized, ["玄関"]) && hasAny(normalized, ["上がれ", "上がり", "下り", "段差", "スロープ", "つまず", "つまづ"]))
+  );
+}
+
+function hasUrinaryLeakageRequest(normalized) {
+  return hasAny(normalized, ["尿もれ", "尿漏れ", "パッド", "尿とり", "紙おむつ", "おむつ", "オムツ"]);
+}
+
+function hasToiletCleaningRequest(normalized) {
+  return hasAny(normalized, ["清拭", "後始末", "拭く", "拭き取り", "おしりふき", "洗浄", "清潔"]);
+}
+
+function hasToiletContext(normalized) {
+  return hasAny(normalized, ["トイレ", "便座", "便器", "排泄", "尿", "パッド", "おむつ", "清拭", "後始末", "おしり"]);
+}
+
+function hasToiletMultiConcern(normalized) {
+  return [
+    hasToiletRailRequest(normalized),
+    hasToiletSeatHeightRequest(normalized),
+    hasPortableToiletRequest(normalized),
+    hasUrinaryLeakageRequest(normalized),
+    hasToiletCleaningRequest(normalized)
+  ].filter(Boolean).length >= 2;
+}
+
 function hasPortableToiletRequest(normalized) {
   return (
     hasAny(normalized, ["ポータブルトイレ", "ポータブル便器"]) ||
@@ -497,7 +731,7 @@ function hasPortableToiletRequest(normalized) {
 function hasToiletSeatHeightRequest(normalized) {
   return (
     hasAny(normalized, ["便座", "トイレ"]) &&
-    hasAny(normalized, ["低い", "高さ", "補高", "膝", "ひざ", "腰", "立ち上がりにく", "立ちにく"])
+    hasAny(normalized, ["低い", "低く", "高さ", "補高", "膝", "ひざ", "腰", "立ち上がりにく", "立ちにく"])
   );
 }
 
@@ -612,6 +846,15 @@ function detectDesiredItems(text) {
   if (hasBathTubEntryRequest(normalized)) {
     itemIds.push("bath-tub-rail", "bath-tub-step");
   }
+  if (hasBathMobilityRequest(normalized)) {
+    itemIds.push("bath-shower-chair", "bath-tub-rail", "bath-tub-step", "bath-shower-carry");
+  }
+  if (hasStairRequest(normalized)) {
+    itemIds.push("house-rail");
+  }
+  if (hasStepOrThresholdRequest(normalized)) {
+    itemIds.push("house-slope", "house-rail");
+  }
   if (hasPortableToiletRequest(normalized)) {
     itemIds.push("toilet-portable");
   }
@@ -620,6 +863,12 @@ function detectDesiredItems(text) {
   }
   if (hasToiletRailRequest(normalized)) {
     itemIds.push("toilet-rail");
+  }
+  if (hasToiletContext(normalized) && hasUrinaryLeakageRequest(normalized)) {
+    itemIds.push("toilet-pad");
+  }
+  if (hasToiletContext(normalized) && hasToiletCleaningRequest(normalized)) {
+    itemIds.push("toilet-clean");
   }
   if (hasDailyMonitorRequest(normalized)) {
     itemIds.push("daily-monitor");
@@ -901,8 +1150,9 @@ function catalogPageHref(target, pdfPage) {
 function renderProductCost(product) {
   const rental = getRentalEstimate(product);
   const nonRentalNote = renderNonRentalCostNote(product);
+  const priceLabel = getProductPriceLabel(product, rental);
   return `
-    <span class="product-price">価格: ${escapeHtml(product.price || "カタログ確認")}</span>
+    <span class="product-price">価格: ${escapeHtml(priceLabel)}</span>
     ${
       rental
         ? `
@@ -917,6 +1167,24 @@ function renderProductCost(product) {
   `;
 }
 
+function getProductPriceLabel(product, rental = getRentalEstimate(product)) {
+  const rawPrice = cleanDisplayText(product.price || "");
+  if (rawPrice && normalize(rawPrice) !== "カタログ確認") return rawPrice;
+  if (rental) return "貸与価格は事業所確認";
+  if (product.catalogUnavailable) return "別カタログ確認";
+
+  const insurance = product.insurance || getCategoryDecisionMeta(product.categoryId).insurance || {};
+  if (insurance.rental) return "貸与価格は事業所確認";
+  if (isHousingOrConstructionCategory(product.categoryId)) return "住宅改修・購入対象の可能性あり";
+  if (insurance.purchase && insurance.privatePay) return "購入・自費扱い";
+  if (insurance.purchase) return "購入対象の可能性あり";
+  return "事業所確認";
+}
+
+function isHousingOrConstructionCategory(categoryId = "") {
+  return String(categoryId).startsWith("house-") || ["bath-tub-rail", "toilet-rail", "bed-rail"].includes(categoryId);
+}
+
 function renderNonRentalCostNote(product) {
   const insurance = product.insurance || getCategoryDecisionMeta(product.categoryId).insurance || {};
   if (insurance.purchase && insurance.privatePay) {
@@ -926,6 +1194,56 @@ function renderNonRentalCostNote(product) {
     return "介護保険では購入対象になる場合があります。自己負担や対象条件を事業所へ確認してください。";
   }
   return "介護保険では購入・住宅改修・自費扱いになる場合があります。";
+}
+
+function renderProductOverview(product) {
+  const catalogLink = product.catalogUnavailable
+    ? "このカタログ内の該当ページはありません。"
+    : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}">カタログ P${product.page}を開く</a>`;
+
+  return `
+    <details class="product-overview">
+      <summary>概要を見る</summary>
+      <dl class="product-overview-list">
+        <div>
+          <dt>特徴</dt>
+          <dd>${escapeHtml(joinOverviewParts([product.itemFeatures, product.features, product.category || product.type]))}</dd>
+        </div>
+        <div>
+          <dt>向いている状態</dt>
+          <dd>${escapeHtml(joinOverviewParts([product.bestFor, product.itemFit, product.fit, ...(product.useWhen || []), ...(product.requiredAbilities || [])]))}</dd>
+        </div>
+        <div>
+          <dt>注意点</dt>
+          <dd>${escapeHtml(joinOverviewParts([product.check, product.itemDemerits, product.demerits, ...(product.avoidWhen || [])], "現物の寸法、置く場所、本人の動作を確認してください。"))}</dd>
+        </div>
+        <div>
+          <dt>レンタル・購入区分</dt>
+          <dd>${escapeHtml(getInsuranceOverview(product))}</dd>
+        </div>
+        <div>
+          <dt>カタログリンク</dt>
+          <dd>${catalogLink}</dd>
+        </div>
+      </dl>
+    </details>
+  `;
+}
+
+function joinOverviewParts(parts, fallback = "事業所へ確認してください。") {
+  const cleaned = parts
+    .flat()
+    .map(cleanDisplayText)
+    .filter(Boolean);
+  return [...new Set(cleaned)].slice(0, 4).join(" / ") || fallback;
+}
+
+function getInsuranceOverview(product) {
+  const rental = getRentalEstimate(product);
+  if (rental) {
+    return `介護保険レンタル対象。月額目安: ${formatRentalRange(rental.monthly, 1)}（1割） / ${formatRentalRange(rental.monthly, 2)}（2割） / ${formatRentalRange(rental.monthly, 3)}（3割）。`;
+  }
+  return renderNonRentalCostNote(product);
 }
 
 function getRentalEstimate(product) {
@@ -1026,7 +1344,7 @@ const SceneAbilityChoices = {
   bath: [
     { label: "洗い場で立つと不安", value: "洗い場で立つとふらつきます。座って体を洗いたいです。", itemIds: ["bath-shower-chair"] },
     { label: "浴槽をまたぐのが不安", value: "浴槽をまたぐ時につかまる場所がほしいです。浴槽手すりや浴槽台を検討したいです。", itemIds: ["bath-tub-rail", "bath-tub-step"] },
-    { label: "浴室内の移動が難しい", value: "浴室まで歩くことや、浴室内で移動することが難しいです。", itemIds: ["bath-shower-carry"] },
+    { label: "浴室内の移動が難しい", value: "浴室まで歩くことや、浴室内で移動することが難しいです。", itemIds: ["bath-shower-chair", "bath-tub-rail", "bath-tub-step", "bath-shower-carry"] },
     { label: "座ってシャワー中心にしたい", value: "浴槽に入るより、座ってシャワー浴を中心にしたいです。シャワーチェアがほしいです。", itemIds: ["bath-shower-chair"] },
     { label: "浴槽内で立つ・座るのが不安", value: "浴槽の中で立つ時や座る時が不安です。浴槽台やすのこを確認したいです。", itemIds: ["bath-tub-step"] },
     { label: "体を支えて洗う介助が大変", value: "体を支えながら洗う介助が大変です。手伝う人の負担を減らしたいです。", itemIds: ["bath-shower-chair"] }
@@ -1035,9 +1353,9 @@ const SceneAbilityChoices = {
     { label: "便座に座る・立つ時が不安", value: "便座に座る時や立つ時にふらつきます。トイレ用手すりや補高便座を確認したいです。", itemIds: ["toilet-rail", "toilet-seat"] },
     { label: "夜に間に合わない", value: "夜間にトイレまで間に合わないことがあります。ポータブルトイレも検討したいです。", itemIds: ["toilet-portable"] },
     { label: "向きを変える・服の上げ下げが大変", value: "トイレで向きを変える時や、ズボンを上げ下げする時に支えが必要です。", itemIds: ["toilet-rail"] },
-    { label: "尿もれ・パッド交換で困る", value: "尿もれやパッド交換で困っています。尿とりパッドや紙おむつを確認したいです。", itemIds: ["toilet-pad"] },
+    { label: "尿もれ・パッド交換で困る", value: "尿もれやパッド交換で困っています。尿とりパッドや紙おむつを確認したいです。", itemIds: ["toilet-pad", "toilet-rail"] },
     { label: "便座が低く立ち上がりにくい", value: "便座が低く、膝や腰がつらくて立ち上がりにくいです。補高便座も確認したいです。", itemIds: ["toilet-seat"] },
-    { label: "後始末や清拭が大変", value: "排泄後に拭くことや清潔を保つことが大変です。おしりふきや洗浄用品も確認したいです。", itemIds: ["toilet-clean"] }
+    { label: "後始末や清拭が大変", value: "排泄後に拭くことや清潔を保つことが大変です。おしりふきや洗浄用品も確認したいです。", itemIds: ["toilet-clean", "toilet-rail"] }
   ],
   bed: [
     { label: "起き上がりが大変", value: "ベッドから起き上がる時に支えが必要です。ベッド用手すりがほしいです。", itemIds: ["bed-rail"] },
@@ -1053,7 +1371,7 @@ const SceneAbilityChoices = {
     { label: "家の中でふらつく", value: "家の中は歩けますが、ふらつきがあり転倒が不安です。", itemIds: ["mob-cane"] },
     { label: "外出中に疲れやすい", value: "外出中に疲れやすく、休憩しながら歩きたいです。歩行車が気になります。", itemIds: ["mob-walker"] },
     { label: "通院・長距離は車いす", value: "通院や長い距離の移動は歩くのが難しいです。車いすを使いたいです。", itemIds: ["mob-wheelchair"] },
-    { label: "玄関や段差で困る", value: "玄関や家の中の段差で困っています。スロープも検討したいです。", itemIds: ["mob-slope"] },
+    { label: "玄関や段差で困る", value: "玄関や家の中の段差で困っています。スロープも検討したいです。", itemIds: ["house-slope", "house-rail", "mob-slope"] },
     { label: "片手の支えで歩きたい", value: "短い距離なら歩けますが、片手で支えがほしいです。杖や多点杖を確認したいです。", itemIds: ["mob-cane"] },
     { label: "両手でしっかり支えたい", value: "両手でしっかり支えれば歩けそうです。歩行器や歩行車を確認したいです。", itemIds: ["mob-walker"] }
   ],
@@ -1068,7 +1386,7 @@ const SceneAbilityChoices = {
   ],
   housing: [
     { label: "玄関・廊下に支えがほしい", value: "玄関や廊下でふらつきます。住宅用手すりがほしいです。", itemIds: ["house-rail"] },
-    { label: "段差でつまずく", value: "段差でつまずきます。段差解消スロープを検討したいです。", itemIds: ["house-slope"] },
+    { label: "段差でつまずく", value: "段差でつまずきます。段差解消スロープと、つかまる場所を確認したいです。", itemIds: ["house-slope", "house-rail"] },
     { label: "階段が不安", value: "階段や廊下でふらつきがあり、転倒が不安です。", itemIds: ["house-rail"] },
     { label: "工事せず置き型で考えたい", value: "賃貸なので工事できないです。置き型の手すりやスロープで考えたいです。", itemIds: ["house-rail", "house-slope"] },
     { label: "浴室やトイレに手すりがほしい", value: "浴室やトイレに手すりがほしいです。使う場所に合う手すりを確認したいです。", itemIds: ["bath-tub-rail", "toilet-rail"] },
@@ -1162,7 +1480,8 @@ function buildFollowUpQuestion(missing) {
     return {
       fields: ["scene"],
       text: "いちばん困っている場面に近いものを選んでください。思い浮かんでいる介護用品があれば、文章で補足できます。",
-      choices: getFollowUpChoices("scene")
+      choices: getFollowUpChoices("scene"),
+      multiSelect: true
     };
   }
   if (missing.includes("ability")) {
@@ -1172,7 +1491,8 @@ function buildFollowUpQuestion(missing) {
         "ability",
         "困っている動きに近いものを選んでください。選択肢にない場合は、下の入力欄にそのまま書けます。"
       ),
-      choices: getFollowUpChoices("ability")
+      choices: getFollowUpChoices("ability"),
+      multiSelect: true
     };
   }
   if (missing.includes("caregiver")) {
@@ -1182,20 +1502,23 @@ function buildFollowUpQuestion(missing) {
         "caregiver",
         "手伝う人の状況に近いものを選んでください。"
       ),
-      choices: getFollowUpChoices("caregiver")
+      choices: getFollowUpChoices("caregiver"),
+      multiSelect: true
     };
   }
   if (missing.includes("goal")) {
     return {
       fields: ["goal"],
       text: "今回いちばん大事にしたいことに近いものを選んでください。置く場所の広さや寸法は次に確認します。",
-      choices: getFollowUpChoices("goal")
+      choices: getFollowUpChoices("goal"),
+      multiSelect: true
     };
   }
   return {
     fields: ["environment"],
     text: "使う場所の広さや条件に近いものを選んでください。寸法が分かる場合は文章で補足できます。",
-    choices: getFollowUpChoices("environment")
+    choices: getFollowUpChoices("environment"),
+    multiSelect: true
   };
 }
 
@@ -1254,8 +1577,9 @@ function mergeRecommendedItems(preferredItems, rankedItems) {
 function selectProducts(rankedProducts, limit) {
   const selected = [];
   const usedProductNames = new Set();
+  const requiredItemIds = getRequiredSelectedItemIds().slice(0, limit);
 
-  for (const itemId of promoteIds(state.desiredItemIds, state.profile.latestItemIds)) {
+  for (const itemId of requiredItemIds) {
     const product = rankedProducts.find((candidate) => candidate.categoryId === itemId && !usedProductNames.has(productTitle(candidate)));
     if (product) {
       selected.push(product);
@@ -1272,6 +1596,46 @@ function selectProducts(rankedProducts, limit) {
     if (selected.length >= limit) break;
   }
   return selected;
+}
+
+function getRequiredSelectedItemIds() {
+  return promoteIds(state.profile.latestItemIds, state.profile.itemIds)
+    .filter((itemId) => findCatalogItemById(itemId));
+}
+
+function getConcernLabelForCategory(categoryId) {
+  const matchingFacts = (state.profile.selectionFacts || [])
+    .filter((entry) => entry.field === "ability" || entry.field === "desired")
+    .map((entry) => cleanDisplayText(entry.value))
+    .filter(Boolean)
+    .filter((label) => {
+      const choice = findChoiceByLabel(label);
+      return !choice || (choice.itemIds || []).includes(categoryId);
+    });
+  if (matchingFacts.length > 0) return matchingFacts.slice(0, 2).join(" / ");
+
+  const item = findCatalogItemById(categoryId);
+  if (!item) return "相談内容";
+  return cleanDisplayText(item.type || item.category || "相談内容");
+}
+
+function findChoiceByLabel(label) {
+  const choiceGroups = [
+    ...Object.values(SceneAbilityChoices),
+    ...Object.values(CaregiverChoices),
+    GoalChoices,
+    EnvironmentChoices,
+    [
+      { label: "入浴", itemIds: [] },
+      { label: "排泄", itemIds: [] },
+      { label: "移動", itemIds: [] },
+      { label: "ベッド周り", itemIds: [] },
+      { label: "食事", itemIds: [] },
+      { label: "住宅改修", itemIds: [] },
+      { label: "生活支援", itemIds: [] }
+    ]
+  ];
+  return choiceGroups.flat().find((choice) => cleanDisplayText(choice.label) === label);
 }
 
 function searchCatalogProducts(scene) {
@@ -1427,6 +1791,7 @@ function isCategoryBlockedByFocusedRequest(categoryId, fullText, goalText) {
 function isProductHardExcluded(product, fullText, goalText) {
   if (isCategoryBlockedByFocusedRequest(product.categoryId, fullText, goalText)) return true;
 
+  if (product.categoryId === "mob-walker" && hasStairRequest(fullText) && !isCategoryExplicit("mob-walker")) return true;
   if (product.categoryId === "bed-lift" && hasBedSupportRequest(fullText) && !hasStrongLiftNeed(fullText)) return true;
   if (product.categoryId === "mob-wheelchair" && hasWheelchairTransferSupportContext(fullText) && !hasLatestExplicitWheelchairUseRequest()) return true;
   if (
@@ -1497,6 +1862,24 @@ function scoreDecisionMeta(product, fullText, goalText, constraintsText) {
   }
   if (product.categoryId === "bed-lift" && !hasStrongLiftNeed(fullText) && !isCategoryExplicit("bed-lift")) score -= 60;
   if (product.categoryId === "mob-wheelchair" && hasWheelchairTransferSupportContext(fullText) && !hasLatestExplicitWheelchairUseRequest()) score -= 120;
+  if (hasStairRequest(fullText)) {
+    if (product.categoryId === "house-rail") score += 70;
+    if (["house-slope", "house-step"].includes(product.categoryId)) score += 12;
+    if (product.categoryId === "mob-walker" && !isCategoryExplicit("mob-walker")) score -= 120;
+  }
+  if (hasStepOrThresholdRequest(fullText)) {
+    if (["house-slope", "mob-slope"].includes(product.categoryId)) score += 48;
+    if (["house-rail", "daily-stand"].includes(product.categoryId)) score += 34;
+  }
+  if (hasBathMobilityRequest(fullText)) {
+    if (["bath-shower-chair", "bath-tub-rail", "bath-tub-step"].includes(product.categoryId)) score += 44;
+    if (product.categoryId === "bath-shower-carry") score += wantsSelf || limitedCaregiver ? -18 : 18;
+  }
+  if (hasToiletMultiConcern(fullText)) {
+    if (["toilet-rail", "toilet-seat"].includes(product.categoryId)) score += 36;
+    if (["toilet-pad", "toilet-clean"].includes(product.categoryId)) score += 22;
+    if (product.categoryId === "toilet-portable" && hasPortableToiletRequest(fullText)) score += 18;
+  }
 
   return score;
 }
@@ -1586,6 +1969,22 @@ function rankItems(scene) {
         else if (BedRailPreferredItemIds.has(item.id)) score += 8;
         if (item.id === "bed-lift" && !hasStrongLiftNeed(fullText)) score -= 28;
         if (item.id === "mob-wheelchair" && !hasExplicitWheelchairUseRequest(fullText)) score -= 28;
+      }
+      if (hasStairRequest(fullText)) {
+        if (item.id === "house-rail") score += 24;
+        if (item.id === "mob-walker") score -= 32;
+      }
+      if (hasStepOrThresholdRequest(fullText)) {
+        if (["house-slope", "mob-slope"].includes(item.id)) score += 18;
+        if (["house-rail", "daily-stand"].includes(item.id)) score += 12;
+      }
+      if (hasBathMobilityRequest(fullText)) {
+        if (["bath-shower-chair", "bath-tub-rail", "bath-tub-step"].includes(item.id)) score += 18;
+        if (item.id === "bath-shower-carry") score += 8;
+      }
+      if (hasToiletMultiConcern(fullText)) {
+        if (["toilet-rail", "toilet-seat"].includes(item.id)) score += 14;
+        if (["toilet-pad", "toilet-clean"].includes(item.id)) score += 10;
       }
       if (item.id === "mob-walker" && hasAny(fullText, ["両手", "疲れやす", "休憩", "屋外"])) score += 6;
       if (item.id === "mob-cane" && hasAny(fullText, ["両手", "強いふらつき"])) score -= 4;
@@ -1728,6 +2127,7 @@ function renderRecommendation(result) {
     .filter(Boolean);
 
   bubble.innerHTML = `
+    ${renderSelectionChipsHtml()}
     <section class="condition-section">
       <h2>今回の条件</h2>
       <p class="condition-summary">${escapeHtml(conditionParts.join(" / "))}</p>
@@ -1740,6 +2140,7 @@ function renderRecommendation(result) {
           <thead>
             <tr>
               <th>商品名</th>
+              <th>対応する困りごと</th>
               <th>種類</th>
               <th>向いている理由</th>
               <th>確認すること</th>
@@ -1761,7 +2162,9 @@ function renderRecommendation(result) {
                               カタログ P${product.page}を開く
                             </a>`
                       }
+                      ${renderProductOverview(product)}
                     </td>
+                    <td data-label="対応する困りごと">${escapeHtml(getConcernLabelForCategory(product.categoryId || product.id))}</td>
                     <td data-label="種類">${escapeHtml(cleanDisplayText(product.category || product.type || "候補"))}</td>
                     <td data-label="向いている理由">${escapeHtml(cleanDisplayText(product.bestFor || product.itemFit || product.fit || ""))}</td>
                     <td data-label="確認すること">${escapeHtml(cleanDisplayText(product.check || product.itemDemerits || product.demerits || "現物の寸法と使う場所を確認。"))}</td>
@@ -1870,19 +2273,69 @@ inputEl.addEventListener("keydown", (event) => {
 });
 
 quickChipsEl.addEventListener("click", (event) => {
+  const submit = event.target.closest("[data-quick-submit]");
+  if (submit) {
+    const selectedButtons = Array.from(quickChipsEl.querySelectorAll("button[data-seed].selected"));
+    if (selectedButtons.length === 0) return;
+    const text = selectedButtons.map((button) => button.dataset.seed).join(" ");
+    const choiceLabels = selectedButtons.map((button) => button.textContent.trim()).filter(Boolean);
+    handleUserMessage(text, {
+      choiceLabels,
+      undoable: true
+    });
+    return;
+  }
+
   const button = event.target.closest("button[data-seed]");
   if (!button) return;
-  inputEl.value = button.dataset.seed;
-  formEl.requestSubmit();
+  const selected = !button.classList.contains("selected");
+  button.classList.toggle("selected", selected);
+  button.setAttribute("aria-pressed", selected ? "true" : "false");
+  const submitButton = quickChipsEl.querySelector("[data-quick-submit]");
+  if (submitButton) submitButton.disabled = quickChipsEl.querySelectorAll("button[data-seed].selected").length === 0;
 });
 
 messagesEl.addEventListener("click", (event) => {
+  const undoButton = event.target.closest("[data-undo-last]");
+  if (undoButton) {
+    undoLastTurn();
+    return;
+  }
+
+  const multiSubmit = event.target.closest("[data-choice-submit]");
+  if (multiSubmit) {
+    const choiceGroup = multiSubmit.closest("[data-choice-group]");
+    const selectedChoices = Array.from(choiceGroup?.querySelectorAll("[data-choice-text].selected") || []);
+    if (selectedChoices.length === 0) return;
+    const itemIds = [
+      ...new Set(
+        selectedChoices.flatMap((choice) => (choice.dataset.choiceItemIds || "").split(",").filter(Boolean))
+      )
+    ];
+    const choiceLabels = selectedChoices.map((choice) => choice.dataset.choiceLabel).filter(Boolean);
+    const text = selectedChoices.map((choice) => choice.dataset.choiceText).join(" ");
+    handleUserMessage(text, { itemIds, choiceLabels, undoable: true });
+    return;
+  }
+
   const choice = event.target.closest("[data-choice-text]");
   if (choice) {
-    choice.disabled = true;
+    const choiceGroup = choice.closest("[data-choice-group]");
+    if (choiceGroup?.dataset.choiceMode === "multi") {
+      if (choice.disabled) return;
+      const selected = !choice.classList.contains("selected");
+      choice.classList.toggle("selected", selected);
+      choice.setAttribute("aria-pressed", selected ? "true" : "false");
+      const submit = choiceGroup.querySelector("[data-choice-submit]");
+      if (submit) submit.disabled = choiceGroup.querySelectorAll("[data-choice-text].selected").length === 0;
+      return;
+    }
+
     choice.classList.add("selected");
     handleUserMessage(choice.dataset.choiceText, {
-      itemIds: (choice.dataset.choiceItemIds || "").split(",").filter(Boolean)
+      itemIds: (choice.dataset.choiceItemIds || "").split(",").filter(Boolean),
+      choiceLabel: choice.dataset.choiceLabel,
+      undoable: true
     });
     return;
   }
