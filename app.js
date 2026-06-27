@@ -16,6 +16,9 @@ const state = {
 };
 
 let undoStack = [];
+let consultationList = [];
+
+const ConsultationListStorageKey = "welmo-consultation-list-v1";
 
 const messagesEl = document.getElementById("messages");
 const formEl = document.getElementById("chatForm");
@@ -195,6 +198,7 @@ function createEmptyProfile() {
 }
 
 function init() {
+  loadConsultationList();
   renderFacts();
   renderPageList([]);
   addAssistantText(INITIAL_MESSAGE);
@@ -1126,6 +1130,18 @@ function cleanDisplayText(value = "") {
     .trim();
 }
 
+function shortDisplayText(value = "", maxLength = 64) {
+  const text = cleanDisplayText(value);
+  if (!text) return "";
+  const firstSentence = text.split("。").map((part) => part.trim()).find(Boolean) || text;
+  const shortText = firstSentence.length <= maxLength ? firstSentence : `${firstSentence.slice(0, maxLength - 3)}...`;
+  return shortText.endsWith("。") || shortText.endsWith("...") ? shortText : `${shortText}。`;
+}
+
+function productShortFit(product) {
+  return shortDisplayText(product.bestFor || product.itemFit || product.fit || "状態に合うか確認してください。");
+}
+
 function resolveCatalogPage(target, pdfPage) {
   const pageMap = CatalogData.meta.pageMap || {};
   if (target && typeof target === "object") {
@@ -1147,6 +1163,195 @@ function catalogPageHref(target, pdfPage) {
   return pageInfo.pdfPage ? `${CatalogData.meta.pdf}#page=${pageInfo.pdfPage}` : CatalogData.meta.pdf;
 }
 
+function getConsultationStorage() {
+  try {
+    if (typeof localStorage !== "undefined") return localStorage;
+  } catch (error) {
+    return null;
+  }
+  return null;
+}
+
+function loadConsultationList() {
+  const storage = getConsultationStorage();
+  if (!storage) {
+    consultationList = [];
+    return;
+  }
+  try {
+    const stored = JSON.parse(storage.getItem(ConsultationListStorageKey) || "[]");
+    consultationList = normalizeConsultationList(Array.isArray(stored) ? stored : []);
+  } catch (error) {
+    consultationList = [];
+  }
+}
+
+function saveConsultationList() {
+  const storage = getConsultationStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(ConsultationListStorageKey, JSON.stringify(consultationList));
+  } catch (error) {
+    // 保存できない環境でも、画面上の一時リストは使えるようにする。
+  }
+}
+
+function normalizeConsultationList(items) {
+  const seen = new Set();
+  const normalizedItems = [];
+  for (const item of items) {
+    const normalized = normalizeConsultationItem(item);
+    const key = consultationItemKey(normalized);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    normalizedItems.push(normalized);
+  }
+  return normalizedItems;
+}
+
+function normalizeConsultationItem(item = {}) {
+  return {
+    categoryId: String(item.categoryId || item.id || ""),
+    category: cleanDisplayText(item.category || item.type || ""),
+    name: cleanDisplayText(item.name || item.type || item.category || "候補商品"),
+    maker: cleanDisplayText(item.maker || ""),
+    model: cleanDisplayText(item.model || ""),
+    page: item.page || "",
+    pdfPage: item.pdfPage || item.page || "",
+    catalogUnavailable: item.catalogUnavailable === true
+  };
+}
+
+function productToConsultationItem(product) {
+  return normalizeConsultationItem(product);
+}
+
+function consultationItemKey(item = {}) {
+  return [
+    item.categoryId || "",
+    item.maker || "",
+    item.name || "",
+    item.model || "",
+    item.page || ""
+  ].join("|");
+}
+
+function getConsultationList() {
+  return consultationList.map((item) => ({ ...item }));
+}
+
+function isConsultationItemAdded(product) {
+  const key = consultationItemKey(productToConsultationItem(product));
+  return consultationList.some((item) => consultationItemKey(item) === key);
+}
+
+function addToConsultationList(product) {
+  const item = productToConsultationItem(product);
+  const key = consultationItemKey(item);
+  if (!key || consultationList.some((candidate) => consultationItemKey(candidate) === key)) {
+    refreshConsultationListViews();
+    return false;
+  }
+  consultationList = [...consultationList, item];
+  saveConsultationList();
+  refreshConsultationListViews();
+  return true;
+}
+
+function removeFromConsultationList(key) {
+  const beforeLength = consultationList.length;
+  consultationList = consultationList.filter((item) => consultationItemKey(item) !== key);
+  const removed = consultationList.length !== beforeLength;
+  if (removed) saveConsultationList();
+  refreshConsultationListViews();
+  return removed;
+}
+
+function clearConsultationList() {
+  consultationList = [];
+  saveConsultationList();
+  refreshConsultationListViews();
+}
+
+function renderConsultationAddButton(product) {
+  const item = productToConsultationItem(product);
+  const key = consultationItemKey(item);
+  const added = isConsultationItemAdded(item);
+  return `
+    <button
+      type="button"
+      class="consultation-add-button${added ? " added" : ""}"
+      data-consultation-product="${escapeHtml(encodeURIComponent(JSON.stringify(item)))}"
+      data-consultation-key="${escapeHtml(key)}"
+      ${added ? "disabled" : ""}
+    >${added ? "追加済み" : "相談リストに追加"}</button>
+  `;
+}
+
+function renderConsultationListHtml() {
+  return `<section class="consultation-list-section" data-consultation-list>${renderConsultationListContentHtml()}</section>`;
+}
+
+function renderConsultationListContentHtml() {
+  const items = getConsultationList();
+  return `
+    <div class="consultation-list-heading">
+      <h2>相談リスト</h2>
+      <button type="button" data-consultation-clear ${items.length === 0 ? "disabled" : ""}>すべて削除</button>
+    </div>
+    ${
+      items.length === 0
+        ? `<p class="consultation-list-empty">まだ商品は追加されていません。</p>`
+        : `<ul class="consultation-list-items">
+            ${items.map(renderConsultationListItemHtml).join("")}
+          </ul>`
+    }
+  `;
+}
+
+function renderConsultationListItemHtml(item) {
+  const key = consultationItemKey(item);
+  const title = productTitle(item);
+  const catalogLabel = item.catalogUnavailable || !item.page ? "別カタログ確認" : `カタログ P${item.page}`;
+  const catalogLink = item.catalogUnavailable || !item.page
+    ? `<span>${escapeHtml(catalogLabel)}</span>`
+    : `<a href="${catalogPageHref(item)}" target="_blank" rel="noreferrer">カタログ P${item.page}を開く</a>`;
+  return `
+    <li>
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>種類: ${escapeHtml(item.category || "候補商品")}</span>
+        <span>${escapeHtml(catalogLabel)}</span>
+        ${catalogLink}
+      </div>
+      <button type="button" data-consultation-remove="${escapeHtml(key)}">削除</button>
+    </li>
+  `;
+}
+
+function parseConsultationProduct(value = "") {
+  try {
+    return normalizeConsultationItem(JSON.parse(decodeURIComponent(value)));
+  } catch (error) {
+    return null;
+  }
+}
+
+function refreshConsultationListViews() {
+  if (typeof document === "undefined" || !document.querySelectorAll) return;
+  document.querySelectorAll("[data-consultation-list]").forEach((section) => {
+    section.innerHTML = renderConsultationListContentHtml();
+  });
+  document.querySelectorAll("[data-consultation-product]").forEach((button) => {
+    const item = parseConsultationProduct(button.dataset.consultationProduct || "");
+    if (!item) return;
+    const added = isConsultationItemAdded(item);
+    button.textContent = added ? "追加済み" : "相談リストに追加";
+    button.disabled = added;
+    if (button.classList?.toggle) button.classList.toggle("added", added);
+  });
+}
+
 function renderProductCost(product) {
   const rental = getRentalEstimate(product);
   const nonRentalNote = renderNonRentalCostNote(product);
@@ -1158,7 +1363,8 @@ function renderProductCost(product) {
         ? `
           <div class="rental-cost">
             <strong>介護保険レンタル対象</strong>
-            <span>月額目安: ${escapeHtml(formatRentalRange(rental.monthly, 1))}（1割） / ${escapeHtml(formatRentalRange(rental.monthly, 2))}（2割） / ${escapeHtml(formatRentalRange(rental.monthly, 3))}（3割）</span>
+            <span>月額目安</span>
+            ${renderRentalBurdenList(rental.monthly)}
             <small>${escapeHtml(rental.type)}。${escapeHtml(rental.note)} 実際の貸与価格は事業所・地域で変わります。</small>
           </div>
         `
@@ -1210,6 +1416,10 @@ function renderProductOverview(product) {
           <dd>${escapeHtml(joinOverviewParts([product.itemFeatures, product.features, product.category || product.type]))}</dd>
         </div>
         <div>
+          <dt>対応する困りごと</dt>
+          <dd>${escapeHtml(getConcernLabelForCategory(product.categoryId || product.id))}</dd>
+        </div>
+        <div>
           <dt>向いている状態</dt>
           <dd>${escapeHtml(joinOverviewParts([product.bestFor, product.itemFit, product.fit, ...(product.useWhen || []), ...(product.requiredAbilities || [])]))}</dd>
         </div>
@@ -1241,9 +1451,23 @@ function joinOverviewParts(parts, fallback = "事業所へ確認してくださ�
 function getInsuranceOverview(product) {
   const rental = getRentalEstimate(product);
   if (rental) {
-    return `介護保険レンタル対象。月額目安: ${formatRentalRange(rental.monthly, 1)}（1割） / ${formatRentalRange(rental.monthly, 2)}（2割） / ${formatRentalRange(rental.monthly, 3)}（3割）。`;
+    return `介護保険レンタル対象。月額目安: ${formatRentalBurdenText(rental.monthly)}`;
   }
   return renderNonRentalCostNote(product);
+}
+
+function renderRentalBurdenList(monthlyRange) {
+  return `
+    <ul class="rental-burden-list">
+      <li>1割: ${escapeHtml(formatRentalRange(monthlyRange, 1))}</li>
+      <li>2割: ${escapeHtml(formatRentalRange(monthlyRange, 2))}</li>
+      <li>3割: ${escapeHtml(formatRentalRange(monthlyRange, 3))}</li>
+    </ul>
+  `;
+}
+
+function formatRentalBurdenText(monthlyRange) {
+  return `1割: ${formatRentalRange(monthlyRange, 1)} / 2割: ${formatRentalRange(monthlyRange, 2)} / 3割: ${formatRentalRange(monthlyRange, 3)}。`;
 }
 
 function getRentalEstimate(product) {
@@ -2140,10 +2364,8 @@ function renderRecommendation(result) {
           <thead>
             <tr>
               <th>商品名</th>
-              <th>対応する困りごと</th>
               <th>種類</th>
-              <th>向いている理由</th>
-              <th>確認すること</th>
+              <th>向いている人</th>
               <th>価格</th>
             </tr>
           </thead>
@@ -2162,12 +2384,11 @@ function renderRecommendation(result) {
                               カタログ P${product.page}を開く
                             </a>`
                       }
+                      ${renderConsultationAddButton(product)}
                       ${renderProductOverview(product)}
                     </td>
-                    <td data-label="対応する困りごと">${escapeHtml(getConcernLabelForCategory(product.categoryId || product.id))}</td>
                     <td data-label="種類">${escapeHtml(cleanDisplayText(product.category || product.type || "候補"))}</td>
-                    <td data-label="向いている理由">${escapeHtml(cleanDisplayText(product.bestFor || product.itemFit || product.fit || ""))}</td>
-                    <td data-label="確認すること">${escapeHtml(cleanDisplayText(product.check || product.itemDemerits || product.demerits || "現物の寸法と使う場所を確認。"))}</td>
+                    <td data-label="向いている人">${escapeHtml(productShortFit(product))}</td>
                     <td data-label="価格">${renderProductCost(product)}</td>
                   </tr>
                 `
@@ -2194,6 +2415,8 @@ function renderRecommendation(result) {
         <p>桜十字福祉用具　担当堀江（<a href="tel:09095763944">090-9576-3944</a>）までお気軽にご相談ください。</p>
       </div>
     </section>
+
+    ${renderConsultationListHtml()}
   `;
 
   messagesEl.appendChild(bubble);
@@ -2299,6 +2522,25 @@ messagesEl.addEventListener("click", (event) => {
   const undoButton = event.target.closest("[data-undo-last]");
   if (undoButton) {
     undoLastTurn();
+    return;
+  }
+
+  const consultationAddButton = event.target.closest("[data-consultation-product]");
+  if (consultationAddButton) {
+    const item = parseConsultationProduct(consultationAddButton.dataset.consultationProduct || "");
+    if (item) addToConsultationList(item);
+    return;
+  }
+
+  const consultationRemoveButton = event.target.closest("[data-consultation-remove]");
+  if (consultationRemoveButton) {
+    removeFromConsultationList(consultationRemoveButton.dataset.consultationRemove || "");
+    return;
+  }
+
+  const consultationClearButton = event.target.closest("[data-consultation-clear]");
+  if (consultationClearButton) {
+    clearConsultationList();
     return;
   }
 
