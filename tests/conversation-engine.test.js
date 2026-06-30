@@ -3,6 +3,24 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 
 function createApp() {
+  function createMemoryStorage() {
+    const store = new Map();
+    return {
+      getItem(key) {
+        return store.has(key) ? store.get(key) : null;
+      },
+      setItem(key, value) {
+        store.set(key, String(value));
+      },
+      removeItem(key) {
+        store.delete(key);
+      },
+      clear() {
+        store.clear();
+      }
+    };
+  }
+
   class Element {
     constructor(id) {
       this.id = id;
@@ -31,8 +49,10 @@ function createApp() {
   }
 
   const elements = {};
+  const storage = createMemoryStorage();
   const context = {
     console,
+    localStorage: storage,
     document: {
       getElementById(id) {
         if (!elements[id]) elements[id] = new Element(id);
@@ -49,11 +69,11 @@ function createApp() {
       fs.readFileSync("catalog-data.js", "utf8"),
       fs.readFileSync("product-data.js", "utf8"),
       fs.readFileSync("app.js", "utf8"),
-      "globalThis.__test = { handleUserMessage, state, CatalogProducts, CatalogProductCategoryMeta, CatalogData, catalogPageHref };"
+      "globalThis.__test = { handleUserMessage, undoLastTurn, state, CatalogProducts, CatalogProductCategoryMeta, CatalogData, catalogPageHref, renderProductCost, renderProductImage: typeof renderProductImage === 'function' ? renderProductImage : undefined, addToConsultationList, removeFromConsultationList, clearConsultationList, getConsultationList, consultationItemKey, renderConsultationListHtml, renderConsultationAddButton };"
     ].join("\n"),
     context
   );
-  return { elements, app: context.__test };
+  return { elements, app: context.__test, storage };
 }
 
 function lastAssistantHtml(elements) {
@@ -82,6 +102,7 @@ function choiceButtons(elements) {
   const buttonPattern = /<button[\s\S]*?<\/button>/g;
   for (const [buttonHtml] of lastAssistantHtml(elements).matchAll(buttonPattern)) {
     const value = (buttonHtml.match(/data-choice-text="([^"]*)"/) || [])[1] || "";
+    if (!value) continue;
     const itemIds = (buttonHtml.match(/data-choice-item-ids="([^"]*)"/) || [])[1] || "";
     buttons.push({
       label: stripHtml(buttonHtml),
@@ -116,6 +137,328 @@ const handsOnCaregiverItemIds = new Set([
   "bed-transfer-glove",
   "bed-lift"
 ]);
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("入浴で困っています。", { choiceLabel: "入浴" });
+  const html = lastAssistantHtml(elements);
+  assert.match(html, /今回の選択内容/);
+  assert.match(html, /selection-chip/);
+  assert.match(html, /入浴/);
+  assert.match(html, /data-choice-mode="multi"/);
+  assert.match(html, /data-choice-submit/);
+  assert.doesNotMatch(html, /手伝う人<\/small>/);
+  assert.doesNotMatch(html, /場所<\/small>/);
+}
+
+{
+  const { elements, app } = createApp();
+  const initialMessageCount = elements.messages.children.length;
+  app.handleUserMessage("入浴で困っています。", { choiceLabel: "入浴", undoable: true });
+  assert.equal(app.state.facts.scene, "bath");
+  assert.ok((app.state.profile.selectionFacts || []).some((entry) => entry.value === "入浴"));
+  assert.ok(elements.messages.children.length > initialMessageCount);
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.scene, "");
+  assert.equal(app.state.profile.selectionFacts.length, 0);
+  assert.equal(app.state.desiredItemIds.length, 0);
+  assert.equal(app.state.recommendations.length, 0);
+  assert.equal(app.state.pendingFields.length, 0);
+  assert.equal(elements.messages.children.length, initialMessageCount);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("食事で困っています。", { choiceLabel: "食事", undoable: true });
+  const afterSceneMessageCount = elements.messages.children.length;
+
+  app.handleUserMessage(
+    "スプーンや箸が使いにくく、皿が動いたり食べこぼしが多かったりして困っています。",
+    {
+      itemIds: ["meal-spoon", "meal-dish"],
+      choiceLabels: ["スプーンや箸が使いにくい", "皿が動く・こぼす"],
+      undoable: true
+    }
+  );
+  assert.ok(app.state.profile.itemIds.includes("meal-spoon"));
+  assert.ok(app.state.profile.latestItemIds.includes("meal-dish"));
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.scene, "meal");
+  assert.equal(app.state.facts.ability, "");
+  assert.equal(app.state.profile.itemIds.length, 0);
+  assert.equal(app.state.profile.latestItemIds.length, 0);
+  assert.equal(app.state.pendingFields[0], "ability");
+  assert.equal(elements.messages.children.length, afterSceneMessageCount);
+
+  app.handleUserMessage(
+    "スプーンや箸が使いにくく、皿が動いたり食べこぼしが多かったりして困っています。",
+    {
+      itemIds: ["meal-spoon", "meal-dish"],
+      choiceLabels: ["スプーンや箸が使いにくい", "皿が動く・こぼす"],
+      undoable: true
+    }
+  );
+  const afterAbilityMessageCount = elements.messages.children.length;
+
+  app.handleUserMessage("食事の手伝いは主に1人です。", {
+    choiceLabels: ["主に1人で付き添う"],
+    undoable: true
+  });
+  assert.match(app.state.facts.caregiver, /主に1人/);
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.caregiver, "");
+  assert.equal(app.state.pendingFields[0], "caregiver");
+  assert.ok(app.state.profile.itemIds.includes("meal-spoon"));
+  assert.equal(elements.messages.children.length, afterAbilityMessageCount);
+
+  app.handleUserMessage("食事の手伝いは主に1人です。", {
+    choiceLabels: ["主に1人で付き添う"],
+    undoable: true
+  });
+  const afterCaregiverMessageCount = elements.messages.children.length;
+
+  app.handleUserMessage("費用やレンタルできるかも確認したいです。", {
+    choiceLabels: ["費用・レンタルも確認"],
+    undoable: true
+  });
+  assert.match(app.state.facts.goal, /費用|レンタル/);
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.goal, "");
+  assert.equal(app.state.pendingFields[0], "goal");
+  assert.match(app.state.facts.caregiver, /主に1人/);
+  assert.equal(elements.messages.children.length, afterCaregiverMessageCount);
+
+  app.handleUserMessage("費用やレンタルできるかも確認したいです。", {
+    choiceLabels: ["費用・レンタルも確認"],
+    undoable: true
+  });
+  const afterGoalMessageCount = elements.messages.children.length;
+
+  app.handleUserMessage("置く場所の広さはおおむね確保できています。", {
+    choiceLabels: ["広さはおおむね確保できる"],
+    undoable: true
+  });
+  assert.ok(app.state.recommendations.length > 0);
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.environment, "");
+  assert.equal(app.state.recommendations.length, 0);
+  assert.equal(app.state.pendingFields[0], "environment");
+  assert.equal(elements.messages.children.length, afterGoalMessageCount);
+}
+
+{
+  const { app } = createApp();
+  app.handleUserMessage("食事で困っています。", { choiceLabel: "食事", undoable: true });
+  app.handleUserMessage(
+    "スプーンや箸が使いにくく、皿が動いたり食べこぼしが多かったりして困っています。",
+    {
+      itemIds: ["meal-spoon", "meal-dish"],
+      choiceLabels: ["スプーンや箸が使いにくい", "皿が動く・こぼす"],
+      undoable: true
+    }
+  );
+  app.handleUserMessage("食事の手伝いは主に1人です。", {
+    choiceLabels: ["主に1人で付き添う"],
+    undoable: true
+  });
+  app.handleUserMessage("費用やレンタルできるかも確認したいです。", {
+    choiceLabels: ["費用・レンタルも確認"],
+    undoable: true
+  });
+  app.handleUserMessage("置く場所の広さはおおむね確保できています。", {
+    choiceLabels: ["広さはおおむね確保できる"],
+    undoable: true
+  });
+  assert.ok(app.state.recommendations.length > 0);
+
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.environment, "");
+  assert.equal(app.state.recommendations.length, 0);
+  assert.equal(app.state.pendingFields[0], "environment");
+
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.goal, "");
+  assert.equal(app.state.facts.caregiver.includes("主に1人"), true);
+  assert.equal(app.state.pendingFields[0], "goal");
+
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.caregiver, "");
+  assert.ok(app.state.profile.itemIds.includes("meal-spoon"));
+  assert.equal(app.state.pendingFields[0], "caregiver");
+
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.ability, "");
+  assert.equal(app.state.profile.itemIds.length, 0);
+  assert.equal(app.state.profile.latestItemIds.length, 0);
+  assert.equal(app.state.pendingFields[0], "ability");
+  assert.equal(app.state.facts.scene, "meal");
+
+  assert.equal(app.undoLastTurn(), true);
+  assert.equal(app.state.facts.scene, "");
+  assert.equal(app.state.pendingFields.length, 0);
+  assert.equal(app.undoLastTurn(), false);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("移動や歩行で困っています。", { choiceLabel: "移動" });
+  app.handleUserMessage(
+    "外出中に疲れやすく、玄関や段差でも困っています。",
+    {
+      itemIds: ["mob-walker", "mob-slope"],
+      choiceLabels: ["外出中に疲れやすい", "玄関や段差で困る"]
+    }
+  );
+  assert.ok(app.state.profile.itemIds.includes("mob-walker"));
+  assert.ok(app.state.profile.itemIds.includes("mob-slope"));
+  assert.ok(app.state.profile.latestItemIds.includes("mob-walker"));
+  assert.ok(app.state.profile.latestItemIds.includes("mob-slope"));
+  assert.ok(app.state.desiredItemIds.includes("mob-walker"));
+  assert.ok(app.state.desiredItemIds.includes("mob-slope"));
+  assert.match(lastAssistantHtml(elements), /外出中に疲れやすい/);
+  assert.match(lastAssistantHtml(elements), /玄関や段差で困る/);
+  assert.doesNotMatch(lastAssistantHtml(elements), /候補商品の比較/);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("食事で困っています。", { choiceLabel: "食事" });
+  assert.match(lastAssistantHtml(elements), /data-choice-mode="multi"/);
+  assert.match(lastAssistantHtml(elements), /data-choice-submit/);
+
+  app.handleUserMessage(
+    "スプーンや箸が使いにくく、皿が動いたり食べこぼしが多かったりして困っています。",
+    {
+      itemIds: ["meal-spoon", "meal-dish"],
+      choiceLabels: ["スプーンや箸が使いにくい", "皿が動く・こぼす"]
+    }
+  );
+  assert.match(lastAssistantHtml(elements), /data-choice-mode="multi"/);
+  assert.match(lastAssistantHtml(elements), /data-choice-submit/);
+  assert.ok(app.state.profile.itemIds.includes("meal-spoon"));
+  assert.ok(app.state.profile.itemIds.includes("meal-dish"));
+  assert.ok(app.state.profile.latestItemIds.includes("meal-spoon"));
+  assert.ok(app.state.profile.latestItemIds.includes("meal-dish"));
+
+  app.handleUserMessage(
+    "食事の手伝いは主に1人です。食事中にむせないか、そばで確認する必要があります。",
+    { choiceLabels: ["主に1人で付き添う", "むせないか確認している"] }
+  );
+  assert.match(lastAssistantHtml(elements), /data-choice-mode="multi"/);
+  assert.match(lastAssistantHtml(elements), /data-choice-submit/);
+  assert.match(app.state.facts.caregiver, /主に1人/);
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "caregiver" && entry.value === "主に1人で付き添う"));
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "caregiver" && entry.value === "むせないか確認している"));
+
+  app.handleUserMessage(
+    "できるだけ本人が自分でできるようにしたいです。安全を優先して、転倒や事故を防ぎたいです。",
+    { choiceLabels: ["本人が自分でできる", "転倒や事故を防ぐ"] }
+  );
+  assert.match(lastAssistantHtml(elements), /data-choice-mode="multi"/);
+  assert.match(lastAssistantHtml(elements), /data-choice-submit/);
+  assert.match(app.state.facts.goal, /自分でできる/);
+  assert.match(app.state.facts.goal, /転ばない|危なくない/);
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "goal" && entry.value === "本人が自分でできる"));
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "goal" && entry.value === "転倒や事故を防ぐ"));
+
+  app.handleUserMessage(
+    "置く場所が狭いので、コンパクトなものがよいです。賃貸などの理由で、壁や床に穴を開ける工事は難しいです。",
+    { choiceLabels: ["狭い・置けるか不安", "工事は難しい"] }
+  );
+  assert.match(lastAssistantHtml(elements), /候補商品の比較/);
+  assert.match(app.state.facts.environment, /広さに余裕が少ない/);
+  assert.match(app.state.facts.environment, /工事は難しい/);
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "environment" && entry.value === "狭い・置けるか不安"));
+  assert.ok(app.state.profile.selectionFacts.some((entry) => entry.field === "environment" && entry.value === "工事は難しい"));
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("住宅改修や家の中の動線で困っています。", { choiceLabel: "住宅改修" });
+  app.handleUserMessage(
+    "玄関や廊下でふらつきます。段差でつまずきます。賃貸なので工事できないです。",
+    {
+      itemIds: ["house-rail", "house-slope"],
+      choiceLabels: ["玄関・廊下に支えがほしい", "段差でつまずく", "工事せず置き型で考えたい"]
+    }
+  );
+  app.handleUserMessage("手伝う人は主に1人です。", { choiceLabels: ["主に1人で手伝う"] });
+  app.handleUserMessage("安全を優先して、転倒や事故を防ぎたいです。", { choiceLabels: ["転倒や事故を防ぐ"] });
+  app.handleUserMessage("賃貸などの理由で、壁や床に穴を開ける工事は難しいです。", { choiceLabels: ["工事は難しい"] });
+  const categoryIds = topCategoryIds(app, 5);
+  assert.match(lastAssistantHtml(elements), /候補商品の比較/);
+  assert.match(lastAssistantHtml(elements), /向いている人/);
+  assert.ok(categoryIds.includes("house-rail"), `expected house-rail in ${categoryIds.join(",")}`);
+  assert.ok(categoryIds.includes("house-slope"), `expected house-slope in ${categoryIds.join(",")}`);
+  assert.ok(new Set(categoryIds).size > 1, `expected multiple categories in ${categoryIds.join(",")}`);
+  assert.match(lastAssistantHtml(elements), /玄関・廊下に支えがほしい|工事せず置き型で考えたい/);
+  assert.match(lastAssistantHtml(elements), /段差でつまずく|段差解消スロープ/);
+}
+
+{
+  const { app } = createApp();
+  app.handleUserMessage("自宅内の移動で階段昇降が必要です。階段が不安です。");
+  assert.ok(app.state.profile.latestItemIds.includes("house-rail"), `stairs should detect house-rail, got ${app.state.profile.latestItemIds.join(",")}`);
+
+  app.handleUserMessage("階段や廊下でふらつきがあり、転倒が不安です。", {
+    itemIds: ["house-rail"],
+    choiceLabels: ["階段が不安"]
+  });
+  app.handleUserMessage("手伝う人は主に1人です。", { choiceLabels: ["主に1人で手伝う"] });
+  app.handleUserMessage("安全を優先して、転倒や事故を防ぎたいです。", { choiceLabels: ["転倒や事故を防ぐ"] });
+  answerDefaultEnvironment(app);
+  assert.notEqual(firstCategoryId(app), "mob-walker");
+  assert.ok(topCategoryIds(app).includes("house-rail"), `expected house-rail in ${topCategoryIds(app).join(",")}`);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("入浴で困っています。", { choiceLabel: "入浴" });
+  const movingChoice = choiceButtons(elements).find((choice) => choice.label.includes("浴室内の移動が難しい"));
+  assert.ok(movingChoice);
+  for (const expectedId of ["bath-shower-chair", "bath-tub-rail", "bath-tub-step"]) {
+    assert.ok(movingChoice.itemIds.includes(expectedId), `bath movement choice should include ${expectedId}, got ${movingChoice.itemIds.join(",")}`);
+  }
+  app.handleUserMessage(movingChoice.value, { itemIds: movingChoice.itemIds, choiceLabels: [movingChoice.label] });
+  app.handleUserMessage("日中や夜間に本人だけになる時間が多いです。", { choiceLabels: ["本人だけの時間が多い"] });
+  app.handleUserMessage("できるだけ本人が自分でできるようにしたいです。", { choiceLabels: ["本人が自分でできる"] });
+  answerDefaultEnvironment(app);
+  const categoryIds = topCategoryIds(app, 5);
+  const bathSupportCount = new Set(categoryIds.filter((categoryId) => ["bath-shower-chair", "bath-tub-rail", "bath-tub-step", "bath-shower-carry"].includes(categoryId))).size;
+  assert.ok(bathSupportCount >= 2, `bath movement should keep multiple bath supports, got ${categoryIds.join(",")}`);
+  assert.notEqual(firstCategoryId(app), "daily-stand");
+}
+
+{
+  const { app } = createApp();
+  app.handleUserMessage("トイレで便座が低くて立ち座りが不安です。尿もれと清拭も困ります。");
+  for (const expectedId of ["toilet-rail", "toilet-seat", "toilet-pad", "toilet-clean"]) {
+    assert.ok(app.state.profile.latestItemIds.includes(expectedId), `toilet multi concern should detect ${expectedId}, got ${app.state.profile.latestItemIds.join(",")}`);
+  }
+  app.handleUserMessage("手伝う人は主に1人です。", { choiceLabels: ["主に1人で手伝う"] });
+  app.handleUserMessage("安全と清潔を大事にしたいです。", { choiceLabels: ["転倒や事故を防ぐ", "清潔を保ちたい"] });
+  answerDefaultEnvironment(app);
+  const categoryIds = topCategoryIds(app, 5);
+  assert.ok(categoryIds.includes("toilet-rail"), `expected toilet-rail in ${categoryIds.join(",")}`);
+  assert.ok(categoryIds.includes("toilet-seat"), `expected toilet-seat in ${categoryIds.join(",")}`);
+  assert.ok(!categoryIds.every((categoryId) => ["toilet-pad", "toilet-clean"].includes(categoryId)), `toilet candidates should not be only pad/clean: ${categoryIds.join(",")}`);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("住宅改修で困っています。", { choiceLabel: "住宅改修" });
+  const stepChoice = choiceButtons(elements).find((choice) => choice.label.includes("段差でつまずく"));
+  assert.ok(stepChoice);
+  assert.ok(stepChoice.itemIds.includes("house-slope"), `step choice should include house-slope, got ${stepChoice.itemIds.join(",")}`);
+  assert.ok(stepChoice.itemIds.includes("house-rail"), `step choice should include house-rail, got ${stepChoice.itemIds.join(",")}`);
+  app.handleUserMessage(stepChoice.value, { itemIds: stepChoice.itemIds, choiceLabels: [stepChoice.label] });
+  app.handleUserMessage("手伝う人は主に1人です。", { choiceLabels: ["主に1人で手伝う"] });
+  app.handleUserMessage("安全を優先して、転倒や事故を防ぎたいです。", { choiceLabels: ["転倒や事故を防ぐ"] });
+  app.handleUserMessage("賃貸などの理由で、壁や床に穴を開ける工事は難しいです。", { choiceLabels: ["工事は難しい"] });
+  const categoryIds = topCategoryIds(app, 5);
+  assert.ok(categoryIds.includes("house-slope"), `expected house-slope in ${categoryIds.join(",")}`);
+  assert.ok(categoryIds.includes("house-rail"), `expected handrail support in ${categoryIds.join(",")}`);
+}
 
 {
   const { app } = createApp();
@@ -179,6 +522,41 @@ const handsOnCaregiverItemIds = new Set([
 }
 
 {
+  const { app } = createApp();
+  const rentalCost = app.renderProductCost({
+    categoryId: "mob-walker",
+    price: "",
+    insurance: { rental: true, purchase: false, privatePay: false }
+  });
+  assert.match(rentalCost, /価格:\s*貸与価格は事業所確認/);
+  assert.match(rentalCost, /介護保険レンタル対象/);
+  assert.match(rentalCost, /月額目安/);
+  assert.match(rentalCost, /<li>1割:\s*200円〜500円\/月<\/li>/);
+  assert.match(rentalCost, /<li>2割:\s*400円〜1,000円\/月<\/li>/);
+  assert.match(rentalCost, /<li>3割:\s*600円〜1,500円\/月<\/li>/);
+  assert.doesNotMatch(rentalCost, /円\/月（1割）/);
+  assert.doesNotMatch(rentalCost, /価格:\s*カタログ確認/);
+
+  const purchaseCost = app.renderProductCost({
+    categoryId: "bath-shower-chair",
+    price: "",
+    catalogUnavailable: true,
+    insurance: { rental: false, purchase: true, privatePay: true }
+  });
+  assert.match(purchaseCost, /価格:\s*別カタログ確認/);
+  assert.match(purchaseCost, /購入対象・自費対象|購入・住宅改修・自費扱い/);
+  assert.doesNotMatch(purchaseCost, /価格:\s*カタログ確認/);
+
+  const housingCost = app.renderProductCost({
+    categoryId: "house-step",
+    price: "",
+    insurance: { rental: false, purchase: true, privatePay: true }
+  });
+  assert.match(housingCost, /住宅改修・購入対象の可能性あり|購入・自費扱い/);
+  assert.doesNotMatch(housingCost, /価格:\s*カタログ確認/);
+}
+
+{
   const { elements, app } = createApp();
   app.handleUserMessage("入浴で困っています。本人は立つ座る歩くは少しできますがふらつきます。介助者は1人です。安全にしたいです。");
   let html = lastAssistantHtml(elements);
@@ -195,6 +573,14 @@ const handsOnCaregiverItemIds = new Set([
   assert.doesNotMatch(html, /状況の整理/);
   assert.doesNotMatch(html, /アセスメント/);
   assert.match(html, /1\. 候補商品の比較/);
+  assert.match(html, /<th>商品名<\/th>/);
+  assert.match(html, /<th>種類<\/th>/);
+  assert.match(html, /<th>向いている人<\/th>/);
+  assert.match(html, /<th>価格<\/th>/);
+  assert.doesNotMatch(html, /<th>詳細<\/th>/);
+  assert.doesNotMatch(html, /data-label="詳細"/);
+  assert.doesNotMatch(html, /<th>確認すること<\/th>/);
+  assert.doesNotMatch(html, /data-label="確認すること"/);
   assert.match(html, /2\. いちばん合いそうな商品/);
   assert.match(html, /まずはご相談ください/);
   assert.match(html, /3\. まずはご相談ください/);
@@ -202,6 +588,94 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /090-9576-3944/);
   assert.doesNotMatch(html, /次にやること/);
   assert.doesNotMatch(html, /参照:/);
+  assert.match(html, /概要を見る/);
+  assert.match(html, /<dt>特徴<\/dt>/);
+  assert.match(html, /<dt>向いている状態<\/dt>/);
+  assert.match(html, /<dt>注意点<\/dt>/);
+  assert.match(html, /<dt>レンタル・購入区分<\/dt>/);
+  assert.match(html, /<dt>カタログリンク<\/dt>/);
+  assert.match(html, /カタログ\s+P\d+を開く/);
+  assert.match(html, /カタログ\s+P\d+を開く[\s\S]*相談リストに追加[\s\S]*概要を見る/);
+}
+
+{
+  const { app } = createApp();
+  assert.equal(typeof app.renderProductImage, "function");
+
+  const imageProduct = app.CatalogProducts["bath-tub-rail"].find((product) => product.name.includes("たちあっぷ"));
+  assert.equal(imageProduct.image, "assets/product-images/tachiup-cka.jpg");
+  assert.ok(fs.existsSync(imageProduct.image), "product image file should exist");
+
+  const imageHtml = app.renderProductImage(imageProduct);
+  assert.match(imageHtml, /<button[^>]+type="button"[^>]+data-product-image-src="assets\/product-images\/tachiup-cka\.jpg"/);
+  assert.match(imageHtml, /data-product-image-title="たちあっぷ CKAシリーズ"/);
+  assert.match(imageHtml, /<img[^>]+class="[^"]*product-image[^"]*"/);
+  assert.match(imageHtml, /src="assets\/product-images\/tachiup-cka\.jpg"/);
+  assert.match(imageHtml, /alt="たちあっぷ CKAシリーズの商品画像"/);
+  assert.doesNotMatch(imageHtml, /href="acolclub\.pdf#page=52"/);
+
+  const noImageProduct = app.CatalogProducts["bath-shower-chair"][0];
+  assert.equal(app.renderProductImage(noImageProduct), "");
+}
+
+{
+  const { app } = createApp();
+  const imagePendingProducts = new Set(["ケアスロープ", "お散歩コール"]);
+  const missingImages = [];
+  const pendingProducts = [];
+  for (const products of Object.values(app.CatalogProducts)) {
+    for (const product of products) {
+      if (product.catalogUnavailable) continue;
+      const imagePath = product.image || product.imageSrc || "";
+      if (imagePendingProducts.has(product.name)) {
+        pendingProducts.push(product.name);
+        assert.equal(app.renderProductImage(product), "");
+        continue;
+      }
+      if (!imagePath || !fs.existsSync(imagePath)) {
+        missingImages.push(product.name);
+      }
+    }
+  }
+  assert.deepEqual(missingImages, []);
+  assert.deepEqual([...new Set(pendingProducts)].sort(), ["お散歩コール", "ケアスロープ"]);
+}
+
+{
+  const { elements, app, storage } = createApp();
+  app.handleUserMessage("歩行器が欲しいです。");
+  answerCommonRequired(app);
+  let html = lastAssistantHtml(elements);
+  assert.match(html, /相談リストに追加/);
+  assert.match(html, /相談リスト/);
+  assert.match(html, /まだ商品は追加されていません/);
+
+  const product = app.state.recommendations[0];
+  assert.equal(app.addToConsultationList(product), true);
+  assert.equal(app.addToConsultationList(product), false);
+  assert.equal(app.getConsultationList().length, 1);
+
+  const listHtml = app.renderConsultationListHtml();
+  assert.match(listHtml, new RegExp(product.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(listHtml, /種類/);
+  assert.match(listHtml, /カタログ/);
+  assert.match(listHtml, /削除/);
+  assert.match(listHtml, /すべて削除/);
+  assert.match(app.renderConsultationAddButton(product), /追加済み/);
+
+  const saved = storage.getItem("welmo-consultation-list-v1");
+  assert.ok(saved, "consultation list should be saved to localStorage");
+  assert.match(saved, new RegExp(product.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  const key = app.consultationItemKey(app.getConsultationList()[0]);
+  assert.equal(app.removeFromConsultationList(key), true);
+  assert.equal(app.getConsultationList().length, 0);
+  assert.match(app.renderConsultationListHtml(), /まだ商品は追加されていません/);
+
+  app.addToConsultationList(product);
+  app.clearConsultationList();
+  assert.equal(app.getConsultationList().length, 0);
+  assert.equal(storage.getItem("welmo-consultation-list-v1"), "[]");
 }
 
 {
@@ -213,6 +687,8 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /トイレ用手すり/);
   assert.match(html, /置き型手すり|浴室外手すり|たちあっぷ|スムーディ/);
   assert.match(html, /シャワーチェア/);
+  assert.match(html, /src="assets\/product-images\/tachiup-cka\.jpg"/);
+  assert.match(html, /alt="たちあっぷ CKAシリーズの商品画像"/);
   assert.match(html, /href="acolclub\.pdf#page=52"[^>]*>\s*カタログ\s+P50を開く/);
   assert.match(html, /href="acolclub\.pdf#page=53"[^>]*>\s*カタログ\s+P51を開く/);
   assert.doesNotMatch(html, /href="acolclub\.pdf#page=50"[^>]*>\s*カタログ\s+P50を開く/);
