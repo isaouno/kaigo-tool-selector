@@ -1402,6 +1402,52 @@ function renderNonRentalCostNote(product) {
   return "介護保険では購入・住宅改修・自費扱いになる場合があります。";
 }
 
+function renderProductImage(product) {
+  const imageSrc = cleanDisplayText(product.imageSrc || product.image || "");
+  if (!imageSrc) return "";
+
+  const imageAltName = cleanDisplayText(product.name || productTitle(product));
+  const imageTag = `<img class="product-image" src="${escapeHtml(imageSrc)}" alt="${escapeHtml(`${imageAltName}の商品画像`)}" loading="lazy" onerror="this.closest('.product-image-button, .product-image-frame')?.remove()">`;
+  return `
+    <button type="button" data-product-image-src="${escapeHtml(imageSrc)}" data-product-image-title="${escapeHtml(imageAltName)}" class="product-image-button" aria-label="${escapeHtml(`${imageAltName}の画像を拡大表示`)}">
+      ${imageTag}
+    </button>
+  `;
+}
+
+function showProductImageModal(imageSrc, title) {
+  if (typeof document === "undefined" || !document.body || !document.createElement) return;
+  closeProductImageModal();
+
+  const cleanSrc = cleanDisplayText(imageSrc);
+  const cleanTitle = cleanDisplayText(title || "商品画像");
+  if (!cleanSrc) return;
+
+  const modal = document.createElement("div");
+  modal.className = "product-image-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-label", `${cleanTitle}の拡大画像`);
+  modal.dataset.productImageModal = "true";
+  modal.innerHTML = `
+    <button type="button" class="product-image-modal-close" data-product-image-close aria-label="画像を閉じる">閉じる</button>
+    <figure class="product-image-modal-card">
+      <img src="${escapeHtml(cleanSrc)}" alt="${escapeHtml(`${cleanTitle}の商品画像`)}">
+      <figcaption>${escapeHtml(cleanTitle)}</figcaption>
+    </figure>
+  `;
+  document.body.appendChild(modal);
+  const closeButton = modal.querySelector?.("[data-product-image-close]");
+  if (closeButton?.focus) closeButton.focus();
+}
+
+function closeProductImageModal() {
+  if (typeof document === "undefined" || !document.querySelector) return;
+  const modal = document.querySelector("[data-product-image-modal]");
+  if (modal?.remove) modal.remove();
+  else if (modal?.parentNode?.removeChild) modal.parentNode.removeChild(modal);
+}
+
 function renderProductOverview(product) {
   const catalogLink = product.catalogUnavailable
     ? "このカタログ内の該当ページはありません。"
@@ -2375,6 +2421,7 @@ function renderRecommendation(result) {
                 (product) => `
                   <tr>
                     <td class="product-name" data-label="商品名">
+                      ${renderProductImage(product)}
                       <strong>${escapeHtml(productTitle(product))}</strong>
                       ${product.model ? `<small>${escapeHtml(`型番: ${product.model}`)}</small>` : ""}
                       ${
@@ -2519,6 +2566,12 @@ quickChipsEl.addEventListener("click", (event) => {
 });
 
 messagesEl.addEventListener("click", (event) => {
+  const productImageButton = event.target.closest("[data-product-image-src]");
+  if (productImageButton) {
+    showProductImageModal(productImageButton.dataset.productImageSrc || "", productImageButton.dataset.productImageTitle || "");
+    return;
+  }
+
   const undoButton = event.target.closest("[data-undo-last]");
   if (undoButton) {
     undoLastTurn();
@@ -2586,6 +2639,19 @@ messagesEl.addEventListener("click", (event) => {
   if (!control) return;
   setCatalogPage(control.dataset.page, control.dataset.pdfPage);
 });
+
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("click", (event) => {
+    const closeButton = event.target.closest?.("[data-product-image-close]");
+    if (closeButton || event.target?.dataset?.productImageModal) {
+      closeProductImageModal();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeProductImageModal();
+  });
+}
 
 pageListEl.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-page]");

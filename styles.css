@@ -342,6 +342,90 @@ td:nth-child(4) {
   font-weight: 700;
 }
 
+.product-image-button,
+.product-image-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(160px, 100%);
+  margin: 0 0 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.product-image-button {
+  color: inherit;
+  cursor: zoom-in;
+  font: inherit;
+  text-decoration: none;
+}
+
+.product-image-button:hover,
+.product-image-button:focus-visible {
+  border-color: #9ccac3;
+  box-shadow: 0 0 0 3px rgba(17, 105, 94, 0.12);
+  outline: none;
+}
+
+.product-image {
+  display: block;
+  width: 100%;
+  max-width: 148px;
+  height: 112px;
+  object-fit: contain;
+}
+
+.product-image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(14, 34, 31, 0.72);
+}
+
+.product-image-modal-card {
+  width: min(92vw, 820px);
+  max-height: 88vh;
+  margin: 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.24);
+}
+
+.product-image-modal-card img {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+}
+
+.product-image-modal-card figcaption {
+  margin-top: 10px;
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.product-image-modal-close {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--teal);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .product-overview {
   margin-top: 8px;
 }
