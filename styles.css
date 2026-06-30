@@ -342,6 +342,11 @@ td:nth-child(4) {
   font-weight: 700;
 }
 
+.product-catalog-button {
+  cursor: zoom-in;
+  font: inherit;
+}
+
 .product-image-button,
 .product-image-frame {
   display: flex;
@@ -416,6 +421,53 @@ td:nth-child(4) {
   position: fixed;
   top: 14px;
   right: 14px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--teal);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.catalog-page-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  padding: 14px;
+  overflow-y: auto;
+  background: rgba(14, 34, 31, 0.72);
+}
+
+.catalog-page-modal-card {
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.24);
+}
+
+.catalog-page-modal-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.catalog-page-modal-card figcaption {
+  margin-bottom: 10px;
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.catalog-page-modal-close {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 1001;
   min-height: 40px;
   padding: 8px 12px;
   border: 1px solid rgba(255, 255, 255, 0.5);

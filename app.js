@@ -562,6 +562,16 @@ function isExplicitProductRequest(text) {
   return hasAny(normalized, ["ほしい", "欲しい", "見たい", "気になる", "検討したい", "確認したい", "使いたい", "追加"]);
 }
 
+function hasExplicitWalkerRequestText(text) {
+  const normalized = normalize(text);
+  return hasAny(normalized, ["歩行器", "歩行車", "歩行補助車", "シルバーカー", "両手でしっかり支え", "両手で支え", "両手支持"]);
+}
+
+function hasExplicitCaneRequestText(text) {
+  const normalized = normalize(text);
+  return hasAny(normalized, ["杖", "多点杖", "一本杖", "つえ", "片手の支え", "片手で支え", "片手支持", "ロフストランド", "前腕支持"]);
+}
+
 function extractMessageSignals(text) {
   const scene = detectScene(text);
   const desired = detectDesiredItems(text);
@@ -1163,6 +1173,15 @@ function catalogPageHref(target, pdfPage) {
   return pageInfo.pdfPage ? `${CatalogData.meta.pdf}#page=${pageInfo.pdfPage}` : CatalogData.meta.pdf;
 }
 
+function catalogPageImagePath(target, pdfPage) {
+  if (target && typeof target === "object" && target.catalogPageImage) {
+    return cleanDisplayText(target.catalogPageImage);
+  }
+  const pageInfo = resolveCatalogPage(target, pdfPage);
+  const imageMap = CatalogData.meta.catalogPageImages || {};
+  return pageInfo.pdfPage ? cleanDisplayText(imageMap[pageInfo.pdfPage] || "") : "";
+}
+
 function getConsultationStorage() {
   try {
     if (typeof localStorage !== "undefined") return localStorage;
@@ -1315,7 +1334,7 @@ function renderConsultationListItemHtml(item) {
   const catalogLabel = item.catalogUnavailable || !item.page ? "別カタログ確認" : `カタログ P${item.page}`;
   const catalogLink = item.catalogUnavailable || !item.page
     ? `<span>${escapeHtml(catalogLabel)}</span>`
-    : `<a href="${catalogPageHref(item)}" target="_blank" rel="noreferrer">カタログ P${item.page}を開く</a>`;
+    : renderCatalogPageButton(item) || `<span>${escapeHtml(catalogLabel)}（ページ画像未設定）</span>`;
   return `
     <li>
       <div>
@@ -1415,6 +1434,28 @@ function renderProductImage(product) {
   `;
 }
 
+function renderCatalogPageButton(product) {
+  if (!product || product.catalogUnavailable || !product.page) return "";
+  const imageSrc = catalogPageImagePath(product);
+  if (!imageSrc) return "";
+
+  const pageInfo = resolveCatalogPage(product);
+  const displayPage = String(product.page);
+  const pdfPage = String(pageInfo.pdfPage || product.pdfPage || product.page);
+  const title = `カタログ P${displayPage}`;
+  return `
+    <button
+      type="button"
+      class="product-catalog-link product-catalog-button"
+      data-catalog-page-image="${escapeHtml(imageSrc)}"
+      data-catalog-page-title="${escapeHtml(title)}"
+      data-page="${escapeHtml(displayPage)}"
+      data-pdf-page="${escapeHtml(pdfPage)}"
+      aria-label="${escapeHtml(`${title}を拡大表示`)}"
+    >カタログ P${escapeHtml(displayPage)}を開く</button>
+  `;
+}
+
 function showProductImageModal(imageSrc, title) {
   if (typeof document === "undefined" || !document.body || !document.createElement) return;
   closeProductImageModal();
@@ -1448,10 +1489,43 @@ function closeProductImageModal() {
   else if (modal?.parentNode?.removeChild) modal.parentNode.removeChild(modal);
 }
 
+function showCatalogPageModal(imageSrc, title) {
+  if (typeof document === "undefined" || !document.body || !document.createElement) return;
+  closeCatalogPageModal();
+
+  const cleanSrc = cleanDisplayText(imageSrc);
+  const cleanTitle = cleanDisplayText(title || "カタログ");
+  if (!cleanSrc) return;
+
+  const modal = document.createElement("div");
+  modal.className = "catalog-page-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-label", `${cleanTitle}の拡大画像`);
+  modal.dataset.catalogPageModal = "true";
+  modal.innerHTML = `
+    <button type="button" class="catalog-page-modal-close" data-catalog-page-close aria-label="カタログページを閉じる">閉じる</button>
+    <figure class="catalog-page-modal-card">
+      <figcaption>${escapeHtml(cleanTitle)}</figcaption>
+      <img src="${escapeHtml(cleanSrc)}" alt="${escapeHtml(`${cleanTitle}のカタログページ画像`)}">
+    </figure>
+  `;
+  document.body.appendChild(modal);
+  const closeButton = modal.querySelector?.("[data-catalog-page-close]");
+  if (closeButton?.focus) closeButton.focus();
+}
+
+function closeCatalogPageModal() {
+  if (typeof document === "undefined" || !document.querySelector) return;
+  const modal = document.querySelector("[data-catalog-page-modal]");
+  if (modal?.remove) modal.remove();
+  else if (modal?.parentNode?.removeChild) modal.parentNode.removeChild(modal);
+}
+
 function renderProductOverview(product) {
   const catalogLink = product.catalogUnavailable
     ? "このカタログ内の該当ページはありません。"
-    : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}">カタログ P${product.page}を開く</a>`;
+    : renderCatalogPageButton(product) || "カタログページ画像は未設定です。";
 
   return `
     <details class="product-overview">
@@ -1869,7 +1943,7 @@ function selectProducts(rankedProducts, limit) {
 }
 
 function getRequiredSelectedItemIds() {
-  return promoteIds(state.profile.latestItemIds, state.profile.itemIds)
+  return promoteIds(getFocusedItemIds(), state.profile.itemIds)
     .filter((itemId) => findCatalogItemById(itemId));
 }
 
@@ -2017,7 +2091,20 @@ function isCategoryExplicit(categoryId) {
 }
 
 function getFocusedItemIds() {
+  const mobilityFocusItemIds = resolveMobilityFocusItemIds();
+  if (mobilityFocusItemIds.length > 0) return mobilityFocusItemIds;
   return state.profile.latestItemIds.length > 0 ? state.profile.latestItemIds : state.desiredItemIds;
+}
+
+function resolveMobilityFocusItemIds() {
+  const itemIds = promoteIds(state.profile.latestItemIds, state.desiredItemIds);
+  if (!itemIds.includes("mob-walker") || !itemIds.includes("mob-cane")) return [];
+
+  const latestText = state.profile.lastText || "";
+  if (hasExplicitCaneRequestText(latestText) && !hasExplicitWalkerRequestText(latestText)) {
+    return promoteIds(itemIds.filter((itemId) => itemId !== "mob-walker"), ["mob-cane"]);
+  }
+  return promoteIds(itemIds.filter((itemId) => itemId !== "mob-cane"), ["mob-walker"]);
 }
 
 function focusedIncludes(itemIds) {
@@ -2059,6 +2146,7 @@ function isCategoryBlockedByFocusedRequest(categoryId, fullText, goalText) {
 }
 
 function isProductHardExcluded(product, fullText, goalText) {
+  if (isLofstrandProduct(product) && !hasExplicitLofstrandRequest(fullText)) return true;
   if (isCategoryBlockedByFocusedRequest(product.categoryId, fullText, goalText)) return true;
 
   if (product.categoryId === "mob-walker" && hasStairRequest(fullText) && !isCategoryExplicit("mob-walker")) return true;
@@ -2083,6 +2171,14 @@ function isProductHardExcluded(product, fullText, goalText) {
   if (limitedCaregiver && meta.noCaregiverFit === false && wantsSelf && !isCategoryExplicit(product.categoryId)) return true;
 
   return false;
+}
+
+function isLofstrandProduct(product) {
+  return normalize([product.name, product.model, ...(product.keywords || [])].join("。")).includes("ロフストランド");
+}
+
+function hasExplicitLofstrandRequest(text) {
+  return hasAny(normalize(text), ["ロフストランド", "前腕支持", "前腕で支え"]);
 }
 
 function scoreDecisionMeta(product, fullText, goalText, constraintsText) {
@@ -2424,13 +2520,7 @@ function renderRecommendation(result) {
                       ${renderProductImage(product)}
                       <strong>${escapeHtml(productTitle(product))}</strong>
                       ${product.model ? `<small>${escapeHtml(`型番: ${product.model}`)}</small>` : ""}
-                      ${
-                        product.catalogUnavailable
-                          ? ""
-                          : `<a class="product-catalog-link" href="${catalogPageHref(product)}" target="_blank" rel="noreferrer" data-page="${product.page}" data-pdf-page="${product.pdfPage || product.page}">
-                              カタログ P${product.page}を開く
-                            </a>`
-                      }
+                      ${renderCatalogPageButton(product)}
                       ${renderConsultationAddButton(product)}
                       ${renderProductOverview(product)}
                     </td>
@@ -2572,6 +2662,12 @@ messagesEl.addEventListener("click", (event) => {
     return;
   }
 
+  const catalogPageButton = event.target.closest("[data-catalog-page-image]");
+  if (catalogPageButton) {
+    showCatalogPageModal(catalogPageButton.dataset.catalogPageImage || "", catalogPageButton.dataset.catalogPageTitle || "カタログ");
+    return;
+  }
+
   const undoButton = event.target.closest("[data-undo-last]");
   if (undoButton) {
     undoLastTurn();
@@ -2646,10 +2742,17 @@ if (typeof document !== "undefined" && document.addEventListener) {
     if (closeButton || event.target?.dataset?.productImageModal) {
       closeProductImageModal();
     }
+    const catalogCloseButton = event.target.closest?.("[data-catalog-page-close]");
+    if (catalogCloseButton || event.target?.dataset?.catalogPageModal) {
+      closeCatalogPageModal();
+    }
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeProductImageModal();
+    if (event.key === "Escape") {
+      closeProductImageModal();
+      closeCatalogPageModal();
+    }
   });
 }
 
