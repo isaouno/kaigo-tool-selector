@@ -7,7 +7,13 @@ const CatalogData = {
     defaultPdfPage: 3,
     pdfPageCount: 94,
     pageMap: Object.fromEntries(Array.from({ length: 90 }, (_, index) => [index + 1, index + 3])),
+    insuranceGuide: {
+      title: "介護保険利用の流れ",
+      pdfPage: 2,
+      catalogPageImage: "assets/catalog-pages/page-002.jpg"
+    },
     catalogPageImages: {
+      2: "assets/catalog-pages/page-002.jpg",
       6: "assets/catalog-pages/page-006.jpg",
       7: "assets/catalog-pages/page-007.jpg",
       10: "assets/catalog-pages/page-010.jpg",

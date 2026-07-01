@@ -29,6 +29,7 @@ const progressCountEl = document.getElementById("progressCount");
 const pageListEl = document.getElementById("pageList");
 const catalogSourceEl = document.getElementById("catalogSource");
 const resetButtonEl = document.getElementById("resetButton");
+const insuranceFlowButtonEl = document.getElementById("insuranceFlowButton");
 const previewImageEl = document.getElementById("previewImage");
 const previewMediaEl = document.getElementById("previewMedia");
 const previewPageEl = document.getElementById("previewPage");
@@ -1522,6 +1523,13 @@ function closeCatalogPageModal() {
   else if (modal?.parentNode?.removeChild) modal.parentNode.removeChild(modal);
 }
 
+function openInsuranceGuide() {
+  const guide = CatalogData.meta.insuranceGuide || {};
+  const imageSrc = cleanDisplayText(guide.catalogPageImage || "");
+  if (!imageSrc) return;
+  showCatalogPageModal(imageSrc, guide.title || "介護保険利用の流れ");
+}
+
 function renderProductOverview(product) {
   const catalogLink = product.catalogUnavailable
     ? "このカタログ内の該当ページはありません。"
@@ -2762,6 +2770,9 @@ pageListEl.addEventListener("click", (event) => {
   setCatalogPage(button.dataset.page, button.dataset.pdfPage);
 });
 
+if (insuranceFlowButtonEl?.addEventListener) {
+  insuranceFlowButtonEl.addEventListener("click", openInsuranceGuide);
+}
 resetButtonEl.addEventListener("click", resetConversation);
 
 previewImageEl.addEventListener("error", () => {
