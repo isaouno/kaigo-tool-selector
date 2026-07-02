@@ -825,7 +825,8 @@ td > .product-price:first-child {
 }
 
 .choice-actions button,
-.undo-button {
+.undo-button,
+.reset-chat-button {
   min-height: 34px;
   padding: 7px 12px;
   border: 1px solid #b8d4d0;
@@ -849,7 +850,14 @@ td > .product-price:first-child {
   background: transparent;
 }
 
-.undo-button {
+.undo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.undo-button,
+.reset-chat-button {
   background: #fff;
   color: var(--teal);
 }

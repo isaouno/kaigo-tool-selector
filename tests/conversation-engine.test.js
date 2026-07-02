@@ -69,7 +69,7 @@ function createApp() {
       fs.readFileSync("catalog-data.js", "utf8"),
       fs.readFileSync("product-data.js", "utf8"),
       fs.readFileSync("app.js", "utf8"),
-      "globalThis.__test = { handleUserMessage, undoLastTurn, state, CatalogProducts, CatalogProductCategoryMeta, CatalogData, catalogPageHref, renderProductCost, renderProductImage: typeof renderProductImage === 'function' ? renderProductImage : undefined, addToConsultationList, removeFromConsultationList, clearConsultationList, getConsultationList, consultationItemKey, renderConsultationListHtml, renderConsultationAddButton };"
+      "globalThis.__test = { handleUserMessage, undoLastTurn, resetConversation, scrollMessages, state, CatalogProducts, CatalogProductCategoryMeta, CatalogData, catalogPageHref, catalogPageImagePath: typeof catalogPageImagePath === 'function' ? catalogPageImagePath : undefined, renderCatalogPageButton: typeof renderCatalogPageButton === 'function' ? renderCatalogPageButton : undefined, showCatalogPageModal: typeof showCatalogPageModal === 'function' ? showCatalogPageModal : undefined, openInsuranceGuide: typeof openInsuranceGuide === 'function' ? openInsuranceGuide : undefined, renderProductCost, renderProductImage: typeof renderProductImage === 'function' ? renderProductImage : undefined, addToConsultationList, removeFromConsultationList, clearConsultationList, getConsultationList, consultationItemKey, renderConsultationListHtml, renderConsultationAddButton };"
     ].join("\n"),
     context
   );
@@ -131,6 +131,19 @@ function answerCommonRequired(app) {
   answerDefaultEnvironment(app);
 }
 
+{
+  const indexHtml = fs.readFileSync("index.html", "utf8");
+  const topbarActions = (indexHtml.match(/<div class="topbar-actions">([\s\S]*?)<\/div>/) || [])[1] || "";
+  const resetIndex = topbarActions.indexOf('id="resetButton"');
+  const insuranceIndex = topbarActions.indexOf('id="insuranceFlowButton"');
+  const catalogIndex = topbarActions.indexOf('href="acolclub.pdf#page=3"');
+
+  assert.ok(resetIndex >= 0, "topbar should keep reset button");
+  assert.ok(insuranceIndex > resetIndex, "insurance flow button should appear after reset button");
+  assert.ok(catalogIndex > insuranceIndex, "insurance flow button should appear before catalog link");
+  assert.match(topbarActions, /id="insuranceFlowButton"[\s\S]*介護保険利用の流れ/);
+}
+
 const handsOnCaregiverItemIds = new Set([
   "bath-transfer-board",
   "bath-shower-carry",
@@ -158,6 +171,12 @@ const handsOnCaregiverItemIds = new Set([
   assert.equal(app.state.facts.scene, "bath");
   assert.ok((app.state.profile.selectionFacts || []).some((entry) => entry.value === "入浴"));
   assert.ok(elements.messages.children.length > initialMessageCount);
+  const undoHtml = lastAssistantHtml(elements);
+  assert.doesNotMatch(undoHtml, /直前の選択を取り消す/);
+  assert.match(undoHtml, /ひとつ前に戻る/);
+  assert.match(undoHtml, /最初からやり直す/);
+  assert.match(undoHtml, /data-reset-chat/);
+  assert.equal(elements.messages.scrollTop, elements.messages.scrollHeight);
   assert.equal(app.undoLastTurn(), true);
   assert.equal(app.state.facts.scene, "");
   assert.equal(app.state.profile.selectionFacts.length, 0);
@@ -165,6 +184,22 @@ const handsOnCaregiverItemIds = new Set([
   assert.equal(app.state.recommendations.length, 0);
   assert.equal(app.state.pendingFields.length, 0);
   assert.equal(elements.messages.children.length, initialMessageCount);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("入浴で困っています。", { choiceLabel: "入浴", undoable: true });
+  assert.equal(app.state.facts.scene, "bath");
+  app.resetConversation();
+  assert.equal(app.state.facts.scene, "");
+  assert.equal(app.state.profile.selectionFacts.length, 0);
+  assert.equal(app.state.desiredItemIds.length, 0);
+  assert.equal(app.state.recommendations.length, 0);
+  assert.equal(app.state.pendingFields.length, 0);
+  assert.equal(elements.messages.children.length, 1);
+  assert.match(lastAssistantHtml(elements), /福祉用具えらびサポートです/);
+  assert.equal(elements.quickChips.hidden, false);
+  assert.equal(elements.messages.scrollTop, elements.messages.scrollHeight);
 }
 
 {
@@ -496,11 +531,25 @@ const handsOnCaregiverItemIds = new Set([
   assert.equal(app.CatalogData.meta.pageMap[50], 52);
   assert.equal(app.catalogPageHref({ page: 50, pdfPage: 52 }), "acolclub.pdf#page=52");
   assert.equal(app.catalogPageHref({ page: 50 }), "acolclub.pdf#page=52");
+  assert.equal(typeof app.openInsuranceGuide, "function");
+  assert.equal(app.CatalogData.meta.insuranceGuide.title, "介護保険利用の流れ");
+  assert.equal(app.CatalogData.meta.insuranceGuide.pdfPage, 2);
+  assert.equal(app.CatalogData.meta.insuranceGuide.catalogPageImage, "assets/catalog-pages/page-002.jpg");
+  assert.ok(fs.existsSync(app.CatalogData.meta.insuranceGuide.catalogPageImage), "insurance guide image should exist");
+  assert.equal(typeof app.catalogPageImagePath, "function");
+  assert.equal(typeof app.renderCatalogPageButton, "function");
+  assert.equal(app.catalogPageImagePath({ page: 50, pdfPage: 52 }), "assets/catalog-pages/page-052.jpg");
+  assert.equal(app.catalogPageImagePath({ page: 50 }), "assets/catalog-pages/page-052.jpg");
 
   for (const products of Object.values(app.CatalogProducts)) {
     for (const product of products) {
       assert.ok("pdfPage" in product, `${product.name} needs pdfPage for PDF link`);
       assert.equal(product.pdfPage, product.page + 2, `${product.name} should keep printed page and PDF page separated`);
+      if (!product.catalogUnavailable) {
+        const catalogImage = app.catalogPageImagePath(product);
+        assert.ok(catalogImage, `${product.name} needs catalog page image mapping`);
+        assert.ok(fs.existsSync(catalogImage), `${product.name} catalog page image should exist: ${catalogImage}`);
+      }
     }
   }
 
@@ -519,6 +568,16 @@ const handsOnCaregiverItemIds = new Set([
   const monitor = app.CatalogProducts["daily-monitor"][0];
   assert.equal(monitor.page, 86);
   assert.equal(monitor.pdfPage, 88);
+
+  const catalogButtonHtml = app.renderCatalogPageButton(stand);
+  assert.match(catalogButtonHtml, /<button[^>]+type="button"[^>]+class="[^"]*product-catalog-button[^"]*"/);
+  assert.match(catalogButtonHtml, /data-catalog-page-image="assets\/catalog-pages\/page-052\.jpg"/);
+  assert.match(catalogButtonHtml, /data-catalog-page-title="カタログ P50"/);
+  assert.match(catalogButtonHtml, />\s*カタログ\s+P50を開く\s*<\/button>/);
+  assert.doesNotMatch(catalogButtonHtml, /href="acolclub\.pdf#page=/);
+
+  const unavailableProduct = app.CatalogProducts["bath-shower-chair"][0];
+  assert.equal(app.renderCatalogPageButton(unavailableProduct), "");
 }
 
 {
@@ -596,11 +655,14 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /<dt>カタログリンク<\/dt>/);
   assert.match(html, /カタログ\s+P\d+を開く/);
   assert.match(html, /カタログ\s+P\d+を開く[\s\S]*相談リストに追加[\s\S]*概要を見る/);
+  assert.match(html, /<button[^>]+class="[^"]*product-catalog-button[^"]*"[^>]+data-catalog-page-image="assets\/catalog-pages\/page-\d{3}\.jpg"[^>]*>\s*カタログ\s+P\d+を開く\s*<\/button>/);
+  assert.doesNotMatch(html, /href="acolclub\.pdf#page=/);
 }
 
 {
   const { app } = createApp();
   assert.equal(typeof app.renderProductImage, "function");
+  assert.equal(typeof app.showCatalogPageModal, "function");
 
   const imageProduct = app.CatalogProducts["bath-tub-rail"].find((product) => product.name.includes("たちあっぷ"));
   assert.equal(imageProduct.image, "assets/product-images/tachiup-cka.jpg");
@@ -616,6 +678,18 @@ const handsOnCaregiverItemIds = new Set([
 
   const noImageProduct = app.CatalogProducts["bath-shower-chair"][0];
   assert.equal(app.renderProductImage(noImageProduct), "");
+}
+
+{
+  const css = fs.readFileSync("styles.css", "utf8");
+  assert.match(css, /\.catalog-page-modal\s*{[\s\S]*overflow-y:\s*auto/);
+  assert.match(css, /\.catalog-page-modal-card\s*{[\s\S]*width:\s*min\(100%,\s*1200px\)/);
+  assert.match(css, /\.catalog-page-modal-card img\s*{[\s\S]*width:\s*100%/);
+  assert.match(css, /\.catalog-page-modal-card img\s*{[\s\S]*height:\s*auto/);
+  assert.doesNotMatch(css, /\.catalog-page-modal-card img\s*{[^}]*max-height/);
+  assert.doesNotMatch(css, /\.catalog-page-modal-card img\s*{[^}]*object-fit:\s*contain/);
+  assert.match(css, /\.product-image-modal-card img\s*{[\s\S]*max-height:\s*72vh/);
+  assert.match(css, /\.product-image-modal-card img\s*{[\s\S]*object-fit:\s*contain/);
 }
 
 {
@@ -659,6 +733,8 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(listHtml, new RegExp(product.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(listHtml, /種類/);
   assert.match(listHtml, /カタログ/);
+  assert.match(listHtml, /data-catalog-page-image="assets\/catalog-pages\/page-\d{3}\.jpg"/);
+  assert.doesNotMatch(listHtml, /href="acolclub\.pdf#page=/);
   assert.match(listHtml, /削除/);
   assert.match(listHtml, /すべて削除/);
   assert.match(app.renderConsultationAddButton(product), /追加済み/);
@@ -689,10 +765,11 @@ const handsOnCaregiverItemIds = new Set([
   assert.match(html, /シャワーチェア/);
   assert.match(html, /src="assets\/product-images\/tachiup-cka\.jpg"/);
   assert.match(html, /alt="たちあっぷ CKAシリーズの商品画像"/);
-  assert.match(html, /href="acolclub\.pdf#page=52"[^>]*>\s*カタログ\s+P50を開く/);
-  assert.match(html, /href="acolclub\.pdf#page=53"[^>]*>\s*カタログ\s+P51を開く/);
-  assert.doesNotMatch(html, /href="acolclub\.pdf#page=50"[^>]*>\s*カタログ\s+P50を開く/);
-  assert.doesNotMatch(html, /href="acolclub\.pdf#page=51"[^>]*>\s*カタログ\s+P51を開く/);
+  assert.match(html, /data-catalog-page-image="assets\/catalog-pages\/page-052\.jpg"[^>]*>\s*カタログ\s+P50を開く/);
+  assert.match(html, /data-catalog-page-image="assets\/catalog-pages\/page-053\.jpg"[^>]*>\s*カタログ\s+P51を開く/);
+  assert.doesNotMatch(html, /data-catalog-page-image="assets\/catalog-pages\/page-050\.jpg"[^>]*>\s*カタログ\s+P50を開く/);
+  assert.doesNotMatch(html, /data-catalog-page-image="assets\/catalog-pages\/page-051\.jpg"[^>]*>\s*カタログ\s+P51を開く/);
+  assert.doesNotMatch(html, /href="acolclub\.pdf#page=/);
   assert.doesNotMatch(html, /杖/);
 }
 
@@ -819,6 +896,30 @@ const handsOnCaregiverItemIds = new Set([
   app.handleUserMessage("歩行器もほしいです。");
   assert.equal(firstCategoryId(app), "mob-walker");
   assert.notEqual(firstCategoryId(app), "mob-cane");
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("歩行器がほしいです。");
+  const wobbleChoice = choiceButtons(elements).find((choice) => choice.label.includes("家の中でふらつく"));
+  assert.ok(wobbleChoice);
+  app.handleUserMessage(wobbleChoice.value, { itemIds: wobbleChoice.itemIds, choiceLabel: wobbleChoice.label });
+  app.handleUserMessage("手伝う人は1人です。");
+  app.handleUserMessage("安全を優先して選びたいです。");
+  answerDefaultEnvironment(app);
+  assert.equal(firstCategoryId(app), "mob-walker");
+  assert.notEqual(firstCategoryId(app), "mob-cane");
+  assert.doesNotMatch(lastAssistantHtml(elements), /ロフストランドクラッチ/);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("片手の支えで歩きたいです。");
+  answerCommonRequired(app);
+  assert.equal(firstCategoryId(app), "mob-cane");
+  assert.match(lastAssistantHtml(elements), /テトラ・ケイン/);
+  assert.match(lastAssistantHtml(elements), /src="assets\/product-images\/tetra-cane\.jpg"/);
+  assert.doesNotMatch(lastAssistantHtml(elements), /ロフストランドクラッチ/);
 }
 
 {

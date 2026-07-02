@@ -206,6 +206,11 @@ function init() {
   inputEl.focus();
 }
 
+function clearMessages() {
+  messagesEl.innerHTML = "";
+  if (Array.isArray(messagesEl.children)) messagesEl.children.length = 0;
+}
+
 function resetConversation() {
   state.facts = {
     scene: "",
@@ -222,7 +227,7 @@ function resetConversation() {
   state.profile = createEmptyProfile();
   state.lastSignals = null;
   undoStack = [];
-  messagesEl.innerHTML = "";
+  clearMessages();
   quickChipsEl.hidden = false;
   resetQuickChips();
   setCatalogPage(CatalogData.meta.defaultPage || 1, CatalogData.meta.defaultPdfPage);
@@ -405,7 +410,12 @@ function truncateMessages(messageCount) {
 function addUndoControl() {
   const bubble = document.createElement("article");
   bubble.className = "message undo-message";
-  bubble.innerHTML = `<button type="button" class="undo-button" data-undo-last>直前の選択を取り消す</button>`;
+  bubble.innerHTML = `
+    <div class="undo-actions">
+      <button type="button" class="undo-button" data-undo-last>ひとつ前に戻る</button>
+      <button type="button" class="reset-chat-button" data-reset-chat>最初からやり直す</button>
+    </div>
+  `;
   messagesEl.appendChild(bubble);
   scrollMessages();
 }
@@ -424,7 +434,13 @@ function undoLastTurn() {
 }
 
 function scrollMessages() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  const scrollToLatest = () => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    const latest = messagesEl.lastElementChild || messagesEl.children?.[messagesEl.children.length - 1];
+    latest?.scrollIntoView?.({ block: "end", inline: "nearest" });
+  };
+  scrollToLatest();
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(scrollToLatest);
 }
 
 function escapeHtml(value) {
@@ -2679,6 +2695,12 @@ messagesEl.addEventListener("click", (event) => {
   const undoButton = event.target.closest("[data-undo-last]");
   if (undoButton) {
     undoLastTurn();
+    return;
+  }
+
+  const resetChatButton = event.target.closest("[data-reset-chat]");
+  if (resetChatButton) {
+    resetConversation();
     return;
   }
 
