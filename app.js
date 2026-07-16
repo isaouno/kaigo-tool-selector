@@ -818,6 +818,28 @@ function hasBedSupportRequest(normalized) {
   );
 }
 
+function hasBedsideFreestandingRailRequest(normalized) {
+  return (
+    hasBedContext(normalized) &&
+    hasAny(normalized, ["手すり", "支え", "つかま", "立ち上がり", "起き上がり"]) &&
+    hasAny(normalized, [
+      "置き型",
+      "置くタイプ",
+      "置く手すり",
+      "置ける",
+      "置くだけ",
+      "床置き",
+      "工事なし",
+      "工事できない",
+      "穴を開け",
+      "賃貸",
+      "ベッド柵ではなく",
+      "柵ではなく",
+      "サイドレールではなく"
+    ])
+  );
+}
+
 function hasWheelchairTransferSupportContext(normalized) {
   return (
     hasAny(normalized, ["車いす", "車椅子", "車イス"]) &&
@@ -864,9 +886,11 @@ function detectDesiredItems(text) {
   const normalized = normalize(text);
   const matches = [];
   const itemIds = [];
+  const wantsBedsideFreestandingRail = hasBedsideFreestandingRailRequest(normalized);
 
   if (normalized.includes("手すり")) {
-    if (hasBedSupportRequest(normalized)) itemIds.push("bed-rail");
+    if (wantsBedsideFreestandingRail) itemIds.push("house-rail");
+    else if (hasBedSupportRequest(normalized)) itemIds.push("bed-rail");
     if (hasToiletRailRequest(normalized)) itemIds.push("toilet-rail");
     if (hasAny(normalized, ["浴室", "浴槽", "入浴", "風呂", "お風呂", "シャワー"])) itemIds.push("bath-tub-rail");
     if (hasAny(normalized, ["玄関", "廊下", "階段", "住宅", "屋内", "家"])) itemIds.push("house-rail");
@@ -904,7 +928,7 @@ function detectDesiredItems(text) {
   if (hasDailyMonitorRequest(normalized)) {
     itemIds.push("daily-monitor");
   }
-  if (hasBedSupportRequest(normalized)) {
+  if (hasBedSupportRequest(normalized) && !wantsBedsideFreestandingRail) {
     itemIds.push("bed-rail");
   }
   if (hasStrongLiftNeed(normalized)) {
@@ -2201,6 +2225,11 @@ function isLofstrandProduct(product) {
   return normalize([product.name, product.model, ...(product.keywords || [])].join("。")).includes("ロフストランド");
 }
 
+function isStandardBedSideRailProduct(product) {
+  const productText = normalize([product.name, product.model, ...(product.keywords || [])].join("。"));
+  return productText.includes("ベッドサイドレール") || productText.includes("サイドレール");
+}
+
 function hasExplicitLofstrandRequest(text) {
   return hasAny(normalize(text), ["ロフストランド", "前腕支持", "前腕で支え"]);
 }
@@ -2249,6 +2278,12 @@ function scoreDecisionMeta(product, fullText, goalText, constraintsText) {
     else if (BedRailPreferredItemIds.has(product.categoryId)) score += 24;
     if (product.categoryId === "bed-lift" && !hasStrongLiftNeed(fullText)) score -= 120;
     if (product.categoryId === "mob-wheelchair" && !hasExplicitWheelchairUseRequest(fullText)) score -= 120;
+  }
+  if (hasBedsideFreestandingRailRequest(fullText)) {
+    if (product.categoryId === "house-rail") score += 90;
+    if (product.categoryId === "daily-stand") score += 36;
+    if (product.categoryId === "bed-rail") score -= 80;
+    if (isStandardBedSideRailProduct(product)) score -= 120;
   }
   if (product.categoryId === "bed-lift" && !hasStrongLiftNeed(fullText) && !isCategoryExplicit("bed-lift")) score -= 60;
   if (product.categoryId === "mob-wheelchair" && hasWheelchairTransferSupportContext(fullText) && !hasLatestExplicitWheelchairUseRequest()) score -= 120;

@@ -819,6 +819,25 @@ const handsOnCaregiverItemIds = new Set([
 }
 
 {
+  const { elements, app } = createApp();
+  app.handleUserMessage("ベッドサイドに置くタイプの手すりが欲しいです。工事なしで置けるものを見たいです。");
+  assert.ok(app.state.profile.latestItemIds.includes("house-rail"));
+  assert.ok(!app.state.profile.latestItemIds.includes("bed-rail"));
+  answerCommonRequired(app);
+  assert.equal(firstCategoryId(app), "house-rail");
+  assert.match(firstCandidate(elements), /たちあっぷ|ベスポジ|ルーツ|置き型/);
+  assert.doesNotMatch(firstCandidate(elements), /ベッドサイドレール Kシリーズ/);
+}
+
+{
+  const { elements, app } = createApp();
+  app.handleUserMessage("ベッド横に置く手すりがほしいです。ベッド柵ではなく置き型で考えています。");
+  answerCommonRequired(app);
+  assert.equal(firstCategoryId(app), "house-rail");
+  assert.doesNotMatch(firstCandidate(elements), /ベッドサイドレール Kシリーズ/);
+}
+
+{
   const { app } = createApp();
   app.handleUserMessage("ベッド横で立ち上がるための手すりが欲しいです。");
   answerCommonRequired(app);
