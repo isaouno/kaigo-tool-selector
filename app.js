@@ -509,7 +509,9 @@ function updateFacts(text, pendingFields = [], options = {}) {
   const desiredLabels = applyDetectedItems ? desired.labels : getChoiceItemLabels(options.itemIds || options.forcedItemIds || []);
   const desiredItemIds = applyDetectedItems ? desired.itemIds : options.itemIds || options.forcedItemIds || [];
 
-  if (desiredLabels.length > 0) state.facts.desired = mergeListFact(state.facts.desired, desiredLabels);
+  if (desiredLabels.length > 0 && (!pendingFields.includes("ability") || isExplicitProductRequest(text))) {
+    state.facts.desired = mergeListFact(state.facts.desired, desiredLabels);
+  }
   if (desiredItemIds.length > 0) {
     state.desiredItemIds = shouldReplaceFocus(text)
       ? desiredItemIds
@@ -1430,10 +1432,8 @@ function renderProductCost(product) {
       rental
         ? `
           <div class="rental-cost">
-            <strong>介護保険レンタル対象</strong>
-            <span>月額目安</span>
-            ${renderRentalBurdenList(rental.monthly)}
-            <small>${escapeHtml(rental.type)}。${escapeHtml(rental.note)} 実際の貸与価格は事業所・地域で変わります。</small>
+            <strong>条件により介護保険を利用できる場合があります</strong>
+            <small>要介護度や身体の状態などを専門相談員に確認してください。${escapeHtml(rental.note)} 料金は事業所に確認してください。</small>
           </div>
         `
         : `<small class="cost-note">${escapeHtml(nonRentalNote)}</small>`
@@ -1627,7 +1627,7 @@ function joinOverviewParts(parts, fallback = "事業所へ確認してくださ�
 function getInsuranceOverview(product) {
   const rental = getRentalEstimate(product);
   if (rental) {
-    return `介護保険レンタル対象。月額目安: ${formatRentalBurdenText(rental.monthly)}`;
+    return `条件により介護保険を利用できる場合があります。${rental.note} 料金は事業所に確認してください。`;
   }
   return renderNonRentalCostNote(product);
 }
@@ -1647,10 +1647,10 @@ function formatRentalBurdenText(monthlyRange) {
 }
 
 function getRentalEstimate(product) {
+  if (product.catalogUnavailable) return null;
   const base = RentalEstimateData[product.categoryId];
   if (!base) return null;
   if (product.categoryId === "toilet-rail" && hasAny(normalize(product.name), ["サニタリエース"])) return null;
-  if (product.categoryId === "daily-monitor" && !hasAny(normalize(product.name), ["センサー", "見守りセンサー"])) return null;
   return base;
 }
 
@@ -1764,8 +1764,7 @@ const SceneAbilityChoices = {
     { label: "寝返り・体の向き替えが大変", value: "寝返りや体の向きを変えることが難しいです。床ずれも心配です。", itemIds: ["bed-pressure"] },
     { label: "抱え上げる移乗介助が大変", value: "ベッドから車いすや椅子へ移る時に抱え上げる介助が続いています。リフトも検討したいです。", itemIds: ["bed-lift"] },
     { label: "皮膚の赤み・床ずれが心配", value: "長く寝ていることが多く、皮膚の赤みや床ずれが心配です。", itemIds: ["bed-pressure"] },
-    { label: "ベッドの高さを合わせたい", value: "ベッドの高さが合わず、起き上がりや介助が大変です。介護ベッドを確認したいです。", itemIds: ["bed-care-bed"] },
-    { label: "抱え上げる介助が続いている", value: "抱え上げる介助が続いていて、手伝う人の腰への負担が大きいです。リフトも検討したいです。", itemIds: ["bed-lift"] }
+    { label: "ベッドの高さを合わせたい", value: "ベッドの高さが合わず、起き上がりや介助が大変です。介護ベッドを確認したいです。", itemIds: ["bed-care-bed"] }
   ],
   mobility: [
     { label: "家の中でふらつく", value: "家の中は歩けますが、ふらつきがあり転倒が不安です。", itemIds: ["mob-cane"] },
@@ -1801,6 +1800,11 @@ const SceneAbilityChoices = {
     { label: "毎日くり返す小さな動作が大変", value: "毎日くり返す小さな動作が大変です。生活を助ける道具を広めに確認したいです。", itemIds: ["daily-care-tool"] }
   ]
 };
+
+// 選択された文言だけを回答として扱い、未回答の希望を付け足さない。
+for (const choices of Object.values(SceneAbilityChoices)) {
+  for (const choice of choices) choice.value = choice.label;
+}
 
 const CaregiverChoices = {
   default: [
@@ -1857,13 +1861,14 @@ function getFollowUpChoices(field) {
 
 function appendFallbackChoice(choices, field) {
   const fallback = {
-    ability: { label: "その他・近いものがない", value: "選択肢に近いものがありません。今の情報で広めに候補を見たいです。" },
+    ability: { label: "その他・近いものがない", value: "困っている動作はその他です。" },
     caregiver: { label: "まだ分からない", value: "手伝う人の状況はまだはっきり分かりません。" },
     goal: { label: "まだ決めきれていない", value: "優先したいことはまだ決めきれていません。安全性と使いやすさを見ながら考えたいです。" },
     environment: { label: "まだ分からない", value: "設置場所や寸法はまだはっきり分かりません。" },
     additional: { label: "その他・文章で補足", value: "選択肢に近いものがないので、文章で補足します。" }
   }[field];
-  return fallback && !choices.some((choice) => choice.label === fallback.label) ? [...choices, fallback] : choices;
+  const extended = field === "ability" ? [...choices, { label: "まだ分からない", value: "困っている動作はまだ分かりません。" }] : choices;
+  return fallback && !extended.some((choice) => choice.label === fallback.label) ? [...extended, fallback] : extended;
 }
 
 function getAdditionalRequestChoices() {
@@ -1909,7 +1914,7 @@ function buildFollowUpQuestion(missing) {
   if (missing.includes("goal")) {
     return {
       fields: ["goal"],
-      text: "今回いちばん大事にしたいことに近いものを選んでください。置く場所の広さや寸法は次に確認します。",
+      text: "今回大事にしたいことを選んでください。置く場所の広さや寸法は次に確認します。",
       choices: getFollowUpChoices("goal"),
       multiSelect: true
     };
@@ -2558,16 +2563,22 @@ function renderRecommendation(result) {
   ]
     .map(cleanDisplayText)
     .filter(Boolean);
+  const safetyText = getSearchText();
+  const healthNotice = hasAny(normalize(safetyText), ["むせ", "飲み込み", "嚥下", "皮膚の赤み", "床ずれ", "褥瘡"])
+    ? '<p class="health-notice">むせや皮膚の赤みなどの心配は、用具を選ぶだけで判断せず、医療・介護の専門職にも相談してください。</p>'
+    : "";
 
   bubble.innerHTML = `
     ${renderSelectionChipsHtml()}
     <section class="condition-section">
       <h2>今回の条件</h2>
       <p class="condition-summary">${escapeHtml(conditionParts.join(" / "))}</p>
+      ${healthNotice}
     </section>
 
     <section>
       <h2>1. 候補商品の比較</h2>
+      <p>回答をもとに、相談するための候補を表示しています。ご本人の状態や置く場所に合うか、専門相談員と確認してください。</p>
       <div class="table-wrap">
         <table>
           <thead>
@@ -2585,8 +2596,12 @@ function renderRecommendation(result) {
                   <tr>
                     <td class="product-name" data-label="商品名">
                       ${renderProductImage(product)}
+                      ${!(product.imageSrc || product.image) && !product.catalogUnavailable ? '<small>商品写真は準備中です</small>' : ''}
                       <strong>${escapeHtml(productTitle(product))}</strong>
-                      ${product.model ? `<small>${escapeHtml(`型番: ${product.model}`)}</small>` : ""}
+                      ${product.model && !/^Acolclub P/.test(product.model) ? `<small>${escapeHtml(`型番・仕様: ${product.model}`)}</small>` : ""}
+                      ${product.catalogUnavailable ? '<small>このカタログには掲載されていません。別カタログや購入品として相談できます。</small>' : ''}
+                      <small>関連する相談: ${escapeHtml(getConcernLabelForCategory(product.categoryId || product.id))}</small>
+                      <small>確認すること: ${escapeHtml(cleanDisplayText(product.check || product.itemDemerits || "本人の動作と設置場所を確認してください。"))}</small>
                       ${renderCatalogPageButton(product)}
                       ${renderConsultationAddButton(product)}
                       ${renderProductOverview(product)}
@@ -2604,11 +2619,11 @@ function renderRecommendation(result) {
     </section>
 
     <section>
-      <h2>2. いちばん合いそうな商品</h2>
-      <p><strong>第一候補: ${escapeHtml(productTitle(best))}</strong>。${escapeHtml(cleanDisplayText(best.bestFor || best.itemFit || ""))} ${escapeHtml(state.facts.goal)}という希望と合います。</p>
+      <h2>2. 相談時に確認したい候補</h2>
+      <p><strong>相談時に確認したい候補: ${escapeHtml(productTitle(best))}</strong>。${escapeHtml(cleanDisplayText(best.bestFor || best.itemFit || ""))} ご本人の動作や設置場所を確認して選びましょう。</p>
       ${
         complementary
-          ? `<p>${escapeHtml(productTitle(complementary))}は、第一候補で足りない部分が残る場合の比較候補です。実際の動作確認で、支えの位置、置く場所、介助量を見て判断してください。</p>`
+          ? `<p>${escapeHtml(productTitle(complementary))}も比較する候補です。実際の動作確認で、支えの位置、置く場所、介助量を見て判断してください。</p>`
           : ""
       }
     </section>

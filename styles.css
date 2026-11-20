@@ -1237,3 +1237,11 @@ td > .product-price:first-child {
     grid-template-columns: 1fr;
   }
 }
+
+.health-notice {
+  margin-top: 10px !important;
+  padding: 10px 12px;
+  border-left: 4px solid #a56b19;
+  background: #fff7e8;
+  color: #513700;
+}
