@@ -1,6 +1,6 @@
 # 福祉用具えらびサポート
 
-Acolclubカタログ `acolclub.pdf` を参照しながら、チャット形式で介護用品の候補を絞り込む静的Webアプリです。
+Acolclubカタログ vol.27（2026年6月版） `acolclub.pdf` を参照しながら、チャット形式で介護用品の候補を絞り込む静的Webアプリです。
 
 ## ローカル確認
 
@@ -29,6 +29,7 @@ GitHub Pagesを使う場合は、リポジトリ直下を公開元にする構�
 - `product-data.js`
 - `acolclub.pdf`
 - `robots.txt`
+- `assets/catalog-pages/` と `assets/product-images/`
 - `.nojekyll`
 
 公開しないもの:
@@ -103,4 +104,4 @@ node tests\catalog-page-map.test.js
 
 ## 補足
 
-PDF内の日本語テキストは埋め込みフォントの都合で機械抽出時に文字化けするため、商品データはカタログページを確認して `product-data.js` に整理しています。
+商品データはカタログの掲載内容を確認して `product-data.js` に整理しています。カタログにレンタル価格の記載がない商品は事業所確認とし、画面の負担額は商品別の見積もりではなく種類別の目安です。新版で掲載を確認できなかった商品は候補から除外しています。

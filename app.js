@@ -1240,7 +1240,15 @@ function loadConsultationList() {
   }
   try {
     const stored = JSON.parse(storage.getItem(ConsultationListStorageKey) || "[]");
-    consultationList = normalizeConsultationList(Array.isArray(stored) ? stored : []);
+    const items = Array.isArray(stored) ? stored : [];
+    consultationList = normalizeConsultationList(items.map((item) => {
+      if (item.catalogUnavailable) return item;
+      const products = CatalogProducts[item.categoryId || item.id] || [];
+      const current = products.find((product) => cleanDisplayText(product.name) === cleanDisplayText(item.name));
+      return current
+        ? { ...item, model: current.model, page: current.page, pdfPage: current.pdfPage }
+        : { ...item, page: "", pdfPage: "" };
+    }));
   } catch (error) {
     consultationList = [];
   }
